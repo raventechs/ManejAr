@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
-  manejAr v2.0.2 — 2026-10-24
+  manejAr v2.1.0 — 2026-10-24
   Control de ganancias real para choferes de Uber / Didi / Cabify.
   Stack: single-file HTML + Firebase compat + GitHub Pages. Service worker: sw-manejar.js (raíz del repo). Sin Netlify.
 
+  v2.1.0: ingreso con Google (popup; redirect si el navegador bloquea popups) además de email+contraseña. Nombre tomado de la cuenta Google. Requiere activar proveedor Google en Firebase Auth.
   v2.0.2: WhatsApp de contacto cargado (5491136547592).
   v2.0.1: configuración Firebase real (proyecto manejar-dfdd4).
 
@@ -60,6 +61,7 @@ main{padding:0 16px;max-width:560px;margin:0 auto}
 .btn.lg{font-size:17px;padding:22px 10px}.btn.amb{background:var(--amb);color:#2b1a00}
 .btn.sec{background:var(--card2);color:var(--tx);border:1px solid var(--bd)}.btn.red{background:var(--red);color:#fff}
 .btn.sm{display:inline-block;width:auto;padding:10px 16px;font-size:14px;margin:0}
+.gbtn{display:flex;align-items:center;justify-content:center;gap:10px}
 .link{background:none;border:0;color:var(--ac);font-weight:700;padding:10px;font-size:14px;width:100%}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid2 .btn{margin-bottom:0;width:100%}.grid2{margin-bottom:12px}
 .jc{display:flex;justify-content:space-between;align-items:center;gap:10px}
@@ -144,7 +146,7 @@ h4{margin:0;font-size:16px}
 <script>
 'use strict';
 /* ====== CONFIG ====== */
-const VER='2.0.2', KEY='manejar_v1', ADMIN_PIN='2580', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
+const VER='2.1.0', KEY='manejar_v1', ADMIN_PIN='2580', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
 const FB={apiKey:'AIzaSyBaoM5gbWV5DrRQ7tIUyEPE5oyR6H8hnBw',authDomain:'manejar-dfdd4.firebaseapp.com',projectId:'manejar-dfdd4',storageBucket:'manejar-dfdd4.firebasestorage.app',messagingSenderId:'409587508261',appId:'1:409587508261:web:15e0e6f6f28f18dfd90bcc'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined';
 const WHATSAPP='5491136547592'; /* número con código de país, ej 5491122334455 */
@@ -350,6 +352,7 @@ async function fbInit(){
   if(!FB_ON)return;
   try{firebase.initializeApp(FB);auth=firebase.auth();db=firebase.firestore();
     db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    auth.getRedirectResult().catch(e=>{if(e&&e.code&&!/no-auth-event/.test(e.code))toast(authMsg(e));});
     auth.onAuthStateChanged(onAuth);
     setTimeout(()=>{if(gate==='boot')evaluarAcceso();},9000);
   }catch(e){console.warn('Firebase no disponible',e);gate='block';bmotivo='sin';render();}
@@ -368,7 +371,7 @@ function listenAcct(u){
     if(!sn.exists){
       if(sn.metadata&&sn.metadata.fromCache)return;
       if(creando)return;creando=true;
-      try{await ref.set({email:u.email,nombre:pendingNombre||S.cfg.nombre||'',estado:'demo',vence:Date.now()+DEMO_DIAS*DAY,creado:Date.now()});}catch(e){console.warn(e);}
+      try{await ref.set({email:u.email,nombre:pendingNombre||S.cfg.nombre||(u.displayName||'').slice(0,30),estado:'demo',vence:Date.now()+DEMO_DIAS*DAY,creado:Date.now()});}catch(e){console.warn(e);}
       creando=false;return;}
     S.acct=sn.data();save();evaluarAcceso();
   },err=>{console.warn(err);evaluarAcceso();});}
@@ -381,6 +384,10 @@ function authMsg(e){const c=(e&&e.code)||'';
   if(/email-already/.test(c))return 'Ese email ya tiene cuenta. Probá ingresar.';
   if(/weak-password/.test(c))return 'La contraseña debe tener al menos 6 caracteres';
   if(/invalid-email/.test(c))return 'El email no es válido';
+  if(/popup-closed|cancelled-popup|user-cancelled/.test(c))return 'Ingreso con Google cancelado';
+  if(/account-exists-with-different/.test(c))return 'Ese email ya se registró con contraseña. Ingresá con tu email y contraseña.';
+  if(/unauthorized-domain/.test(c))return 'Dominio no autorizado en Firebase';
+  if(/operation-not-allowed/.test(c))return 'El ingreso con Google no está activado';
   if(/network/.test(c))return 'Sin conexión. Probá de nuevo con internet.';
   if(/too-many/.test(c))return 'Demasiados intentos. Esperá unos minutos.';
   return 'No se pudo completar. Probá de nuevo.';}
@@ -396,6 +403,13 @@ async function authGo(){
       pendingNombre=($('#a_nom').value||'').trim().slice(0,30);if(pendingNombre&&!S.cfg.nombre){S.cfg.nombre=pendingNombre;save();}
       const cr=await auth.createUserWithEmailAndPassword(mail,pass);try{cr.user.sendEmailVerification();}catch(e){}toast('¡Cuenta creada! Tenés '+DEMO_DIAS+' días gratis');}
     else{if(!pass){abusy=false;return toast('Ingresá tu contraseña');}await auth.signInWithEmailAndPassword(mail,pass);}
+  }catch(e){toast(authMsg(e));}
+  abusy=false;}
+async function googleGo(){
+  if(abusy||!auth)return;abusy=true;
+  try{const p=new firebase.auth.GoogleAuthProvider();p.setCustomParameters({prompt:'select_account'});
+    try{await auth.signInWithPopup(p);}
+    catch(e){if(/popup-blocked|operation-not-supported|web-storage-unsupported/.test((e&&e.code)||'')){await auth.signInWithRedirect(p);return;}throw e;}
   }catch(e){toast(authMsg(e));}
   abusy=false;}
 function salir(){if(!auth)return;if(!confirm('¿Cerrar sesión?'))return;auth.signOut().catch(()=>{});closeSheet();}
@@ -414,6 +428,7 @@ function vAuth(){const m=amode;
   <label for="a_mail">Email</label><input id="a_mail" type="email" autocomplete="email" inputmode="email" value="${esc(amail)}">
   ${m!=='rec'?`<label for="a_pass">Contraseña</label><input id="a_pass" type="password" autocomplete="${m==='reg'?'new-password':'current-password'}">`:''}
   <button class="btn" onclick="authGo()">${m==='reg'?'Crear mi cuenta':m==='rec'?'Enviar email':'Ingresar'}</button>
+  ${m!=='rec'?'<div class="mut" style="text-align:center;margin:2px 0 10px">o</div><button class="btn sec gbtn" onclick="googleGo()"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg> Continuar con Google</button>':''}
   ${m==='login'?'<button class="link" onclick="setAmode(\'rec\')">Olvidé mi contraseña</button><button class="link" onclick="setAmode(\'reg\')">Crear cuenta nueva</button>':'<button class="link" onclick="setAmode(\'login\')">Ya tengo cuenta</button>'}</div></div>`;}
 function vBlock(){
   const t={demo:['Terminó tu prueba gratis','Para seguir usando manejAr activá tu cuenta.'],vencida:['Tu suscripción venció','Renová para seguir viendo tus ganancias.'],bloqueado:['Tu cuenta está pausada','Escribinos para resolverlo.'],sin:['No pudimos verificar tu cuenta','Conectate a internet y probá de nuevo.']}[bmotivo]||['Cuenta no disponible',''];
