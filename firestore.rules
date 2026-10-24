@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /flotas/{flotaId} {
+      // Lectura: dueño o chofer registrado en la flota. Ver nota: el código de 6 caracteres permite "unirse" (get del doc).
+      allow get: if request.auth != null;
+      allow list: if false;
+      allow create: if request.auth != null
+                    && request.resource.data.owner == request.auth.uid
+                    && request.resource.data.limiteChoferes == 2;
+      // Dueño: puede modificar todo MENOS limiteChoferes (lo sube el admin desde consola/panel)
+      allow update: if request.auth != null && (
+          (resource.data.owner == request.auth.uid
+            && request.resource.data.limiteChoferes == resource.data.limiteChoferes
+            && request.resource.data.owner == resource.data.owner)
+          ||
+          // Chofer: solo toca su propia entrada dentro de "choferes" y respeta el límite
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['choferes'])
+            && request.resource.data.choferes.diff(resource.data.choferes).affectedKeys().hasOnly([request.auth.uid])
+            && request.resource.data.choferes.keys().size() <= resource.data.limiteChoferes)
+        );
+      allow delete: if false;
+
+      match /registros/{regId} {
+        allow read: if request.auth != null
+                    && get(/databases/$(database)/documents/flotas/$(flotaId)).data.owner == request.auth.uid;
+        allow create, update: if request.auth != null
+                    && request.resource.data.choferUid == request.auth.uid
+                    && regId.matches('^' + request.auth.uid + '_.*')
+                    && (request.auth.uid in get(/databases/$(database)/documents/flotas/$(flotaId)).data.choferes);
+        allow delete: if request.auth != null
+                    && resource.data.choferUid == request.auth.uid;
+      }
+    }
+  }
+}
