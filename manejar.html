@@ -1,24 +1,31 @@
 <!DOCTYPE html>
 <!--
-  manejAr v1.2.0 — 2026-10-24
+  manejAr v2.0.0 — 2026-10-24
   Control de ganancias real para choferes de Uber / Didi / Cabify.
-  Stack: single-file HTML + Firebase compat (opcional) + GitHub Pages. Service worker: sw-manejar.js (raíz del repo).
+  Stack: single-file HTML + Firebase compat + GitHub Pages. Service worker: sw-manejar.js (raíz del repo). Sin Netlify.
 
-  REGLA DE NEGOCIO (v1.2.0): los GASTOS (combustible, peajes, etc.) NO entran en ninguna gráfica ni métrica de rendimiento
-  ($/hora, $/km, mejor día, mejor horario, jornada de hoy). Esas métricas usan el "ingreso del trabajo" = cobrado − comisión de la plataforma.
-  Los gastos se restan únicamente en "lo que te queda", "efectivo en mano" y en el reparto de la plata.
+  CUENTAS Y VENTA (v2.0.0)
+  - Login email + contraseña (Firebase Auth). Al registrarse: demo gratis de 14 días. Al vencer: pantalla de bloqueo.
+  - Estados de cuenta en Firestore usuarios/{uid}: demo | activo | bloqueado + vence (ms). Lo cambia SOLO el administrador.
+  - Cobro MANUAL: el administrador registra el pago (monto + días) desde el panel interno y la cuenta se extiende.
+  - Panel interno: tocar el volante (izquierda del logo) + PIN 2580. El permiso real lo da la cuenta administradora
+    (rgaraventa@gmail.com con email verificado, validado en las reglas de Firestore), el PIN es solo la puerta visual.
+  - Copia de los datos en la nube (usuarios/{uid}/registros) para no perderlos al cambiar de celular.
+  - Si Firebase no está configurado (FB con 'REEMPLAZAR') la app corre en modo local, sin cuentas.
+
+  REGLA DE NEGOCIO (v1.2.0): los GASTOS NO entran en ninguna métrica de rendimiento ($/hora, $/km, mejor día/horario, jornada de hoy).
+  Esas métricas usan el "ingreso del trabajo" = cobrado − comisión. Los gastos se restan solo en "lo que te queda".
 
   CHANGELOG
-  - 1.2.0: gastos fuera del rendimiento. $/h y $/km sobre ingreso del trabajo (sin gastos). "Lo que te queda" separado y explicado.
-  - 1.1.0: Resultados centrado en gráficas: jornada de hoy hora por hora + ritmo vs promedio 7 días, $/h y $/km 7 días con promedio,
-           mejores día/horario, gráfica por horario y por día de la semana.
-  - 1.0.0: carga de viajes en 2 toques, combustible/gastos, jornada con km, comparativa vs ayer, plan Flota (dueño ve choferes en vivo),
-           PIN admin oculto (5 toques), modo claro/oscuro, export CSV y backup JSON.
+  - 2.0.0: cuentas, demo 14 días, bloqueo, panel interno con registro manual de pagos, volante animado, copia en la nube.
+  - 1.2.0: gastos fuera del rendimiento.
+  - 1.1.0: Resultados centrado en gráficas.
+  - 1.0.0: versión inicial.
 
   PENDIENTE
-  - Reemplazar FB (config Firebase del proyecto nuevo) para activar Flota/nube. Sin eso corre 100% local.
+  - Reemplazar FB (config Firebase) y WHATSAPP (número de contacto para activar cuentas).
   - Íconos PNG 192/512 + manifest.json real en el repo (hoy se usa ícono SVG embebido).
-  - Pantalla de bloqueo para plan demo (reusar demoModule.js del portfolio) si se decide cobrar suscripción.
+  - Etapa futura: cobro automático con Mercado Pago (requiere servidor) y app central para manejar todas las cuentas del portfolio.
 -->
 <html lang="es-AR">
 <head>
@@ -33,7 +40,11 @@
 html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 body{padding-bottom:84px}
 button{font-family:inherit;cursor:pointer}
-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;position:sticky;top:0;background:var(--bg);z-index:5}
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;position:sticky;top:0;background:var(--bg);z-index:5}
+.hl{display:flex;align-items:center;gap:6px}
+.wheel{background:none;border:0;color:var(--ac);width:46px;height:46px;display:flex;align-items:center;justify-content:center;padding:0;border-radius:50%}
+.wheel svg{animation:giro 3.4s ease-in-out infinite}
+@keyframes giro{0%,100%{transform:rotate(-30deg)}50%{transform:rotate(30deg)}}
 .logo{font-weight:800;font-size:20px;letter-spacing:.5px;user-select:none}.logo span{color:var(--ac)}
 .badge{font-size:11px;background:var(--card2);border:1px solid var(--bd);border-radius:20px;padding:3px 9px;color:var(--mut);margin-left:8px}
 .ib{background:var(--card);border:1px solid var(--bd);color:var(--tx);border-radius:12px;width:40px;height:40px;font-size:18px}
@@ -41,12 +52,13 @@ main{padding:0 16px;max-width:560px;margin:0 auto}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:16px;margin-bottom:12px}
 .card.tap{cursor:pointer}.card.tap:active{transform:scale(.99)}
 .mut{color:var(--mut);font-size:13px}.big{font-size:34px;font-weight:800;line-height:1.1}.neg{color:var(--red)}.pos{color:var(--ac)}
-.btn{display:block;width:100%;border:0;border-radius:16px;background:var(--ac);color:#03230f;font-weight:800;font-size:17px;padding:16px;margin-bottom:12px}
+.btn{display:block;width:100%;border:0;border-radius:16px;background:var(--ac);color:#03230f;font-weight:800;font-size:17px;padding:16px;margin-bottom:12px;text-align:center;text-decoration:none}
 .btn.xl{font-size:28px;padding:34px 16px;box-shadow:0 8px 24px rgba(34,197,94,.25)}
 .btn.lg{font-size:17px;padding:22px 10px}.btn.amb{background:var(--amb);color:#2b1a00}
 .btn.sec{background:var(--card2);color:var(--tx);border:1px solid var(--bd)}.btn.red{background:var(--red);color:#fff}
 .btn.sm{display:inline-block;width:auto;padding:10px 16px;font-size:14px;margin:0}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid2 .btn{margin-bottom:0}.grid2{margin-bottom:12px}
+.link{background:none;border:0;color:var(--ac);font-weight:700;padding:10px;font-size:14px;width:100%}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid2 .btn{margin-bottom:0;width:100%}.grid2{margin-bottom:12px}
 .jc{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px}
 .chip{background:var(--card2);border:1px solid var(--bd);color:var(--tx);border-radius:30px;padding:10px 16px;font-size:15px;font-weight:600}
@@ -85,6 +97,18 @@ nav button i{display:block;font-style:normal;font-size:21px}nav button.on{color:
 .donut:after{content:"";position:absolute;inset:24px;background:var(--card);border-radius:50%}
 .leg{font-size:13px;line-height:1.9}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 h4{margin:0;font-size:16px}
+/* cuentas */
+.auth{max-width:420px;margin:18px auto 0}
+.banner{border-radius:14px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px;font-weight:700}
+.banner.red{background:var(--red);color:#fff;animation:blink 1.4s infinite}
+.banner.amb{background:var(--amb);color:#2b1a00}
+@keyframes blink{50%{opacity:.65}}
+.st{font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;white-space:nowrap}
+.st.ok{background:rgba(34,197,94,.18);color:var(--ac)}.st.demo{background:rgba(245,158,11,.18);color:var(--amb)}.st.no{background:rgba(239,68,68,.18);color:var(--red)}
+.ucard{cursor:pointer}.ucard:active{transform:scale(.99)}
+.sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.sum div{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:10px 6px;text-align:center}
+.sum b{display:block;font-size:20px}.sum span{font-size:11px;color:var(--mut)}
 #splash{position:fixed;inset:0;background:#0b1220;z-index:99;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .5s}
 #splash .w{font-size:38px;font-weight:800;color:#e8edf7}#splash .w span{color:#22c55e}
 .road{width:200px;height:4px;background:#243049;border-radius:4px;margin-top:22px;overflow:hidden;position:relative}
@@ -92,12 +116,18 @@ h4{margin:0;font-size:16px}
 @keyframes go{to{left:100%}}
 .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;background:var(--card2);color:var(--mut)}
 .on-dot{color:var(--ac)}
+@media (prefers-reduced-motion:reduce){.wheel svg,.banner.red,.road:after{animation:none}}
 </style>
 </head>
 <body>
 <div id="splash"><div class="w">manej<span>Ar</span></div><div class="road"></div></div>
 <header>
-  <div style="display:flex;align-items:center"><div class="logo" onclick="logoTap()">manej<span>Ar</span></div><span class="badge" id="rolBadge"></span></div>
+  <div class="hl">
+    <button class="wheel" onclick="openAdminPin()" aria-label="Administración">
+      <svg viewBox="0 0 100 100" width="32" height="32" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="50" cy="50" r="42" stroke-width="9"/><circle cx="50" cy="50" r="10" fill="currentColor" stroke="none"/><path d="M8 50h32M60 50h32M50 60v32" stroke-width="9"/></svg>
+    </button>
+    <div class="logo">manej<span>Ar</span></div><span class="badge" id="rolBadge"></span>
+  </div>
   <button class="ib" onclick="toggleTema()" id="temaBtn">🌙</button>
 </header>
 <main id="view"></main>
@@ -111,9 +141,10 @@ h4{margin:0;font-size:16px}
 <script>
 'use strict';
 /* ====== CONFIG ====== */
-const VER='1.2.0', KEY='manejar_v1', ADMIN_PIN='2580', DAY=864e5;
+const VER='2.0.0', KEY='manejar_v1', ADMIN_PIN='2580', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
 const FB={apiKey:'REEMPLAZAR',authDomain:'REEMPLAZAR.firebaseapp.com',projectId:'REEMPLAZAR',appId:'REEMPLAZAR'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined';
+const WHATSAPP='REEMPLAZAR'; /* número con código de país, ej 5491122334455 */
 const PLATS=['Uber','Didi','Cabify','Otro'];
 const CAT_COMB=['Nafta','GNC','Diésel'];
 const CAT_VAR=['Peaje','Lavado','Mantenimiento','Comida','Otro'];
@@ -121,9 +152,11 @@ const DIAS=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 const DIAS_L=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 
 /* ====== ESTADO ====== */
-let S={r:[],cfg:{nombre:'',vehiculo:'',com:{Uber:25,Didi:20,Cabify:20,Otro:0},tema:'dark',lastPlat:'Uber',lastPago:'Efectivo'},flota:{id:null,rol:null}};
+let S={r:[],uid:null,acct:null,cfg:{nombre:'',vehiculo:'',com:{Uber:25,Didi:20,Cabify:20,Otro:0},tema:'dark',lastPlat:'Uber',lastPago:'Efectivo'},flota:{id:null,rol:null}};
 try{const x=JSON.parse(localStorage.getItem(KEY)||'null');if(x){S=Object.assign(S,x);S.cfg=Object.assign({},S.cfg,x.cfg||{});S.cfg.com=Object.assign({Uber:25,Didi:20,Cabify:20,Otro:0},(x.cfg||{}).com||{});S.flota=x.flota||{id:null,rol:null};}}catch(e){}
-let tab='inicio',per='hoy',fper='hoy',hf='todo',SEL={},FD=[],FM={choferes:{}},unsubA=null,unsubB=null,auth=null,db=null,me=null,taps=[];
+let tab='inicio',per='hoy',fper='hoy',hf='todo',SEL={},FD=[],FM={choferes:{}},unsubA=null,unsubB=null,unsubAcct=null,unsubUL=null,auth=null,db=null,me=null;
+let gate=FB_ON?'boot':'app', bmotivo='sin', amode='login', amail='', abusy=false, pendingNombre='', ADMIN_OK=false, pinFails=0, pinLock=0, syncDone=false;
+let UL=[],uq='',uf='todo';
 
 /* ====== UTIL ====== */
 const $=s=>document.querySelector(s);
@@ -134,6 +167,7 @@ const fmtK=n=>{n=Math.round(n);return n>=1000?(n/1000).toFixed(n>=10000?0:1).rep
 const num=v=>{const n=parseFloat(String(v).replace(',','.'));return isNaN(n)?NaN:n;};
 const hhmm=t=>new Date(t).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
 const fdate=t=>new Date(t).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})+' '+hhmm(t);
+const fday=t=>t?new Date(t).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}):'—';
 const horasStr=ms=>{const m=Math.floor(ms/6e4);return Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'m';};
 const ago=t=>{if(!t)return 'sin viajes';const m=Math.floor((Date.now()-t)/6e4);return m<1?'recién':m<60?'hace '+m+' min':m<1440?'hace '+Math.floor(m/60)+' h':'hace '+Math.floor(m/1440)+' d';};
 const sod=ts=>{const d=new Date(ts);d.setHours(0,0,0,0);return d.getTime();};
@@ -141,12 +175,11 @@ const toLocal=ts=>{const d=new Date(ts-new Date(ts).getTimezoneOffset()*6e4);ret
 const fromLocal=s=>new Date(s).getTime();
 function rango(p){const n=Date.now(),s=sod(n);if(p==='hoy')return[s,s+DAY];if(p==='ayer')return[s-DAY,s];if(p==='sem')return[s-6*DAY,s+DAY];const d=new Date(n);d.setDate(1);d.setHours(0,0,0,0);return[d.getTime(),s+DAY];}
 function save(){S.upd=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){toast('No se pudo guardar en el teléfono');}}
-function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),2400);}
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),2600);}
 
 /* ====== CÁLCULOS ======
    neto = cobrado − comisión de la plataforma  ("ingreso del trabajo")
-   gan  = neto − gastos                        ("lo que te queda")  ← NO se usa en gráficas de rendimiento
-   ph / pk / series / mejores día y horario → siempre sobre neto */
+   gan  = neto − gastos                        ("lo que te queda")  ← NO se usa en gráficas de rendimiento */
 function calc(rs,a,b){
   const o={bruto:0,com:0,efec:0,dig:0,comb:0,varios:0,viajes:0,horas:0,km:0,abierta:false,ultimo:0};
   for(const r of rs){
@@ -172,14 +205,12 @@ function promSerie(ser){const o=ser.filter(x=>x.ok);return o.length?o.reduce((s,
 function porDiaSemana(k){const s=sod(Date.now()),sum=Array(7).fill(0),n=Array(7).fill(0);
   for(let i=0;i<56;i++){const a=s-i*DAY,c=calc(S.r,a,a+DAY);if(MET[k].ok(c)){const d=new Date(a).getDay();sum[d]+=MET[k].f(c);n[d]++;}}
   return DIAS.map((l,d)=>({l,v:n[d]?sum[d]/n[d]:0,n:n[d]}));}
-/* ingreso neto (después de comisiones, SIN gastos) por hora del reloj, sobre las horas realmente trabajadas, últimos 60 días */
 function horarios(){const from=Date.now()-60*DAY,inc=Array(24).fill(0),wk=Array(24).fill(0);
   for(const r of S.r){if(r.ts<from)continue;
     if(r.t==='v')inc[new Date(r.ts).getHours()]+=r.monto-(r.comMonto||0);
     else if(r.t==='j'){let t=r.inicio;const f=r.fin||Date.now();while(t<f){const d=new Date(t),nx=new Date(t);nx.setMinutes(0,0,0);nx.setHours(d.getHours()+1);const e=Math.min(nx.getTime(),f);wk[d.getHours()]+=(e-t)/36e5;t=e;}}}
   return inc.map((v,h)=>({h,ph:wk[h]>=1?v/wk[h]:null,hrs:wk[h]}));}
 function franjas(){return horarios().filter(x=>x.ph!==null).sort((a,b)=>b.ph-a.ph);}
-/* ingreso neto por hora de HOY (gráfica de la jornada) */
 function horasHoy(){const s=sod(Date.now()),inc={};let min=24,max=-1;
   for(const r of S.r){if(r.ts<s||r.ts>=s+DAY)continue;
     if(r.t==='v'){const h=new Date(r.ts).getHours();inc[h]=(inc[h]||0)+r.monto-(r.comMonto||0);min=Math.min(min,h);max=Math.max(max,h);}
@@ -209,9 +240,9 @@ function delta(r,fm){if(!r.ok)return '<span class="mut">se calcula con más dato
 /* ====== UI BASE ====== */
 function sheet(h){$('#ov').innerHTML=`<div class="ov" onclick="if(event.target===this)closeSheet()"><div class="sh">${h}</div></div>`;}
 function closeSheet(){$('#ov').innerHTML='';}
-function chips(g,opts,sel){return `<div class="chips" id="ch_${g}">`+opts.map(o=>`<button type="button" class="chip ${o===sel?'on':''}" onclick="selChip('${g}','${o}',this)">${esc(o)}</button>`).join('')+'</div>';}
+function chips(g,opts,sel){return `<div class="chips" id="ch_${g}">`+opts.map(o=>`<button type="button" class="chip ${String(o)===String(sel)?'on':''}" onclick="selChip('${g}','${o}',this)">${esc(o)}</button>`).join('')+'</div>';}
 function selChip(g,v,el){SEL[g]=v;el.parentNode.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));el.classList.add('on');}
-function go(t){tab=t;render();window.scrollTo(0,0);}
+function go(t){tab=t;render();window.scrollTo(0,0);if(t==='admin')listenUsers();}
 function toggleTema(){S.cfg.tema=S.cfg.tema==='dark'?'light':'dark';save();applyTema();}
 function applyTema(){document.documentElement.setAttribute('data-theme',S.cfg.tema);$('#temaBtn').textContent=S.cfg.tema==='dark'?'🌙':'☀️';document.querySelector('meta[name=theme-color]').content=S.cfg.tema==='dark'?'#0b1220':'#f3f5f9';}
 
@@ -272,7 +303,7 @@ function saveEditJ(id){const ini=fromLocal($('#f_ini').value),ki=num($('#f_ki').
   upsert({id,t:'j',ts:ini,inicio:ini,kmIni:ki,fin,kmFin});closeSheet();render();}
 function openEdit(id){const r=S.r.find(x=>x.id===id);if(!r)return;if(r.t==='v')openViaje(id);else if(r.t==='g')openGasto(r.sub,id);else openEditJ(id);}
 
-/* ====== DETALLE DE MÉTRICA (pantalla táctil con gráfica) ====== */
+/* ====== DETALLE DE MÉTRICA ====== */
 function openMetric(k){
   const M=MET[k],s=sod(Date.now()),hoy=calc(S.r,s,s+DAY),ayer=calc(S.r,s-DAY,s);
   const vh=M.f(hoy),va=M.f(ayer);
@@ -297,6 +328,104 @@ function openMetric(k){
   ${extra?`<div class="card">${extra}</div>`:''}${fr}<button class="btn sec" onclick="closeSheet()">Cerrar</button>`);
 }
 
+/* ====== CUENTA / ACCESO ====== */
+function esAdminCuenta(){return !!(me&&me.email&&me.email.toLowerCase()===ADMIN_EMAIL);}
+function acceso(){
+  if(esAdminCuenta())return {ok:true,tipo:'admin'};
+  const a=S.acct;if(!a)return {ok:false,motivo:'sin'};
+  if(a.estado==='bloqueado')return {ok:false,motivo:'bloqueado'};
+  if(!a.vence||Date.now()>=a.vence)return {ok:false,motivo:a.estado==='demo'?'demo':'vencida'};
+  return {ok:true,tipo:a.estado,dias:Math.ceil((a.vence-Date.now())/DAY)};}
+function evaluarAcceso(){
+  if(!me){gate='auth';render();return;}
+  const a=acceso();
+  if(a.ok){const era=gate;gate='app';if(era!=='app'&&!syncDone){syncDone=true;syncNube();if(S.flota.id){listenFlota();if(S.flota.rol==='driver')syncAll();}}}
+  else{gate='block';bmotivo=a.motivo;}
+  render();}
+function stopAcct(){if(unsubAcct){unsubAcct();unsubAcct=null;}if(unsubUL){unsubUL();unsubUL=null;}if(unsubA){unsubA();unsubA=null;}if(unsubB){unsubB();unsubB=null;}}
+async function fbInit(){
+  if(!FB_ON)return;
+  try{firebase.initializeApp(FB);auth=firebase.auth();db=firebase.firestore();
+    db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    auth.onAuthStateChanged(onAuth);
+    setTimeout(()=>{if(gate==='boot')evaluarAcceso();},9000);
+  }catch(e){console.warn('Firebase no disponible',e);gate='block';bmotivo='sin';render();}
+}
+function onAuth(u){
+  me=u;stopAcct();syncDone=false;
+  if(!u){S.acct=null;ADMIN_OK=false;save();gate='auth';render();return;}
+  amode='login';tab='inicio';
+  if(S.uid&&S.uid!==u.uid){S.r=[];S.acct=null;S.flota={id:null,rol:null};}
+  S.uid=u.uid;save();
+  if(esAdminCuenta()){evaluarAcceso();}
+  listenAcct(u);}
+function listenAcct(u){
+  const ref=db.collection('usuarios').doc(u.uid);let creando=false;
+  unsubAcct=ref.onSnapshot(async sn=>{
+    if(!sn.exists){
+      if(sn.metadata&&sn.metadata.fromCache)return;
+      if(creando)return;creando=true;
+      try{await ref.set({email:u.email,nombre:pendingNombre||S.cfg.nombre||'',estado:'demo',vence:Date.now()+DEMO_DIAS*DAY,creado:Date.now()});}catch(e){console.warn(e);}
+      creando=false;return;}
+    S.acct=sn.data();save();evaluarAcceso();
+  },err=>{console.warn(err);evaluarAcceso();});}
+async function verificarPago(){
+  if(!db||!me)return;toast('Verificando…');
+  try{const sn=await db.collection('usuarios').doc(me.uid).get({source:'server'});if(sn.exists){S.acct=sn.data();save();}evaluarAcceso();
+    if(gate==='block')toast('Todavía no figura tu activación');}catch(e){toast('Sin conexión. Probá de nuevo con internet.');}}
+function authMsg(e){const c=(e&&e.code)||'';
+  if(/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c))return 'Email o contraseña incorrectos';
+  if(/email-already/.test(c))return 'Ese email ya tiene cuenta. Probá ingresar.';
+  if(/weak-password/.test(c))return 'La contraseña debe tener al menos 6 caracteres';
+  if(/invalid-email/.test(c))return 'El email no es válido';
+  if(/network/.test(c))return 'Sin conexión. Probá de nuevo con internet.';
+  if(/too-many/.test(c))return 'Demasiados intentos. Esperá unos minutos.';
+  return 'No se pudo completar. Probá de nuevo.';}
+function setAmode(m){const e=$('#a_mail');if(e)amail=e.value;amode=m;render();}
+async function authGo(){
+  if(abusy||!auth)return;
+  const mail=($('#a_mail').value||'').trim(),pass=$('#a_pass')?$('#a_pass').value:'';amail=mail;
+  if(!mail)return toast('Ingresá tu email');
+  abusy=true;
+  try{
+    if(amode==='rec'){await auth.sendPasswordResetEmail(mail);toast('Te enviamos un email para cambiar la contraseña');amode='login';render();}
+    else if(amode==='reg'){if(pass.length<6){abusy=false;return toast('La contraseña debe tener al menos 6 caracteres');}
+      pendingNombre=($('#a_nom').value||'').trim().slice(0,30);if(pendingNombre&&!S.cfg.nombre){S.cfg.nombre=pendingNombre;save();}
+      const cr=await auth.createUserWithEmailAndPassword(mail,pass);try{cr.user.sendEmailVerification();}catch(e){}toast('¡Cuenta creada! Tenés '+DEMO_DIAS+' días gratis');}
+    else{if(!pass){abusy=false;return toast('Ingresá tu contraseña');}await auth.signInWithEmailAndPassword(mail,pass);}
+  }catch(e){toast(authMsg(e));}
+  abusy=false;}
+function salir(){if(!auth)return;if(!confirm('¿Cerrar sesión?'))return;auth.signOut().catch(()=>{});closeSheet();}
+function cambiarPass(){if(!auth||!me)return;auth.sendPasswordResetEmail(me.email).then(()=>toast('Te enviamos un email para cambiar la contraseña')).catch(e=>toast(authMsg(e)));}
+function contactoHtml(){
+  const msg='Hola, quiero activar mi cuenta de manejAr. Mi email: '+(me?me.email:'');
+  if(WHATSAPP!=='REEMPLAZAR')return `<a class="btn" target="_blank" rel="noopener" href="https://wa.me/${WHATSAPP}?text=${encodeURIComponent(msg)}">Activar por WhatsApp</a>`;
+  return `<div class="card" style="margin-bottom:12px"><div class="mut">Para activar tu cuenta escribinos a</div><b style="word-break:break-all">${esc(ADMIN_EMAIL)}</b><div class="mut" style="margin-top:4px">Indicá el email con el que te registraste${me?': '+esc(me.email):''}.</div></div>`;}
+
+/* ====== VISTAS: AUTH / BLOQUEO / BANNER ====== */
+function vAuth(){const m=amode;
+  const tit=m==='reg'?'Crear cuenta':m==='rec'?'Recuperar contraseña':'Ingresar';
+  const sub=m==='reg'?`Probá manejAr gratis durante ${DEMO_DIAS} días.`:m==='rec'?'Te enviamos un email para elegir una contraseña nueva.':'Ingresá con tu cuenta para ver tus ganancias reales.';
+  return `<div class="auth"><div class="card"><h3 style="margin:0 0 4px;font-size:22px">${tit}</h3><div class="mut" style="margin-bottom:12px">${sub}</div>
+  ${m==='reg'?'<label for="a_nom">Nombre</label><input id="a_nom" autocomplete="name" maxlength="30">':''}
+  <label for="a_mail">Email</label><input id="a_mail" type="email" autocomplete="email" inputmode="email" value="${esc(amail)}">
+  ${m!=='rec'?`<label for="a_pass">Contraseña</label><input id="a_pass" type="password" autocomplete="${m==='reg'?'new-password':'current-password'}">`:''}
+  <button class="btn" onclick="authGo()">${m==='reg'?'Crear mi cuenta':m==='rec'?'Enviar email':'Ingresar'}</button>
+  ${m==='login'?'<button class="link" onclick="setAmode(\'rec\')">Olvidé mi contraseña</button><button class="link" onclick="setAmode(\'reg\')">Crear cuenta nueva</button>':'<button class="link" onclick="setAmode(\'login\')">Ya tengo cuenta</button>'}</div></div>`;}
+function vBlock(){
+  const t={demo:['Terminó tu prueba gratis','Para seguir usando manejAr activá tu cuenta.'],vencida:['Tu suscripción venció','Renová para seguir viendo tus ganancias.'],bloqueado:['Tu cuenta está pausada','Escribinos para resolverlo.'],sin:['No pudimos verificar tu cuenta','Conectate a internet y probá de nuevo.']}[bmotivo]||['Cuenta no disponible',''];
+  return `<div class="auth"><div class="card"><div style="font-size:44px">${bmotivo==='sin'?'📡':'🔒'}</div><h3 style="margin:6px 0 4px;font-size:22px">${t[0]}</h3><div class="mut" style="margin-bottom:14px">${t[1]}</div>
+  ${bmotivo==='sin'?'':contactoHtml()}
+  <button class="btn sec" onclick="verificarPago()">${bmotivo==='sin'?'Reintentar':'Ya me activaron, verificar'}</button>
+  <div class="mut" style="margin:6px 0 10px;text-align:center">Tus datos siguen guardados${me?' en la cuenta '+esc(me.email):''}.</div>
+  <button class="link" onclick="salir()">Cerrar sesión</button></div></div>`;}
+function bannerCuenta(){
+  if(!FB_ON||esAdminCuenta())return '';const a=acceso();if(!a.ok)return '';
+  if(a.tipo==='demo')return `<div class="banner red"><span>Prueba gratis: te ${a.dias===1?'queda 1 día':'quedan '+a.dias+' días'}</span><button class="btn sm" style="background:#fff;color:#7f1d1d" onclick="openPlan()">Activar</button></div>`;
+  if(a.tipo==='activo'&&a.dias<=5)return `<div class="banner amb"><span>Tu cuenta vence en ${a.dias===1?'1 día':a.dias+' días'}</span><button class="btn sm" style="background:#2b1a00;color:#fff" onclick="openPlan()">Renovar</button></div>`;
+  return '';}
+function openPlan(){sheet(`<h3>Activar mi cuenta</h3><p class="mut">Una vez que abonás, activamos tu cuenta y se suman los días de tu plan.</p>${contactoHtml()}<button class="btn sec" onclick="closeSheet()">Cerrar</button>`);}
+
 /* ====== VISTAS ====== */
 function vInicio(){const [a,b]=rango('hoy'),c=calc(S.r,a,b),jo=jornadaAbierta();
   return `<div class="card jc">${jo?`<div><b>🟢 En jornada</b><div class="mut">desde ${hhmm(jo.inicio)} · ${jo.kmIni} km · ${horasStr(Date.now()-jo.inicio)}</div></div><button class="btn sm red" onclick="openJornada()">Cerrar</button>`:`<div><b>Jornada sin iniciar</b><div class="mut">Cargá los km con los que arrancás</div></div><button class="btn sm" onclick="openJornada()">Iniciar</button>`}</div>
@@ -308,25 +437,20 @@ function vInicio(){const [a,b]=rango('hoy'),c=calc(S.r,a,b),jo=jornadaAbierta();
 function periodChips(cur,fn){return `<div class="chips">`+[['hoy','Hoy'],['sem','7 días'],['mes','Este mes']].map(([k,l])=>`<button class="chip ${cur===k?'on':''}" onclick="${fn}('${k}')">${l}</button>`).join('')+'</div>';}
 function setPer(p){per=p;render();}
 
-/* bloque de gráficas de Resultados (todas sobre ingreso del trabajo, sin gastos) */
 function bloqueGraficas(){
   const s=sod(Date.now()),hoy=calc(S.r,s,s+DAY),rh=ritmo('hora'),rk=ritmo('km'),hh=horasHoy(),jo=jornadaAbierta();
   const kmNota=(!rk.ok&&jo&&hoy.km===0)?'<div class="mut" style="margin-top:2px">se calcula al cerrar la jornada</div>':'';
-  /* 1) jornada de hoy */
   let c1=`<div class="card"><div class="jc"><h4>Tu jornada de hoy</h4><span class="mut">${hoy.horas>0.05?hoy.horas.toFixed(1)+' h':''}</span></div>
     <div class="kpis"><div class="kpi"><span class="mut">Por hora</span><b>${rh.ok?fmt(rh.v)+'/h':'—'}</b>${delta(rh,v=>fmt(v)+'/h')}</div>
     <div class="kpi"><span class="mut">Por km</span><b>${rk.ok?fmt(rk.v)+'/km':'—'}</b>${rk.ok?delta(rk,v=>fmt(v)+'/km'):'<span class="mut">sin km todavía</span>'+kmNota}</div></div>`;
   c1+=hh.length?`<div style="margin-top:14px" class="mut">Ingreso por hora del día (después de comisiones)</div>${bars(hh,fmtK)}<div class="cap">Cada barra es una hora de reloj. La verde es tu mejor hora de hoy. Los gastos no se cuentan acá.</div>`
     :`<div class="cap" style="margin-top:12px">Iniciá la jornada y cargá viajes: acá vas a ver cómo viene tu día hora por hora.</div>`;
   c1+='</div>';
-  /* 2) $/hora 7 días */
   const sH=serie('hora',7),sK=serie('km',7),aH=promSerie(sH),aK=promSerie(sK);
   const c2=`<div class="card tap" onclick="openMetric('hora')"><div class="jc"><h4>Ingreso por hora</h4><span class="mut">7 días ›</span></div>
     ${sH.some(x=>x.ok)?bars(sH,fmtK,{avg:aH}):'<div class="cap">Se arma con tus jornadas y tus viajes.</div>'}<div class="cap">Lo cobrado menos la comisión de la plataforma, dividido por las horas de jornada. No incluye gastos. Tocá para comparar con ayer.</div></div>`;
-  /* 3) $/km 7 días */
   const c3=`<div class="card tap" onclick="openMetric('km')"><div class="jc"><h4>Ingreso por km</h4><span class="mut">7 días ›</span></div>
     ${sK.some(x=>x.ok)?bars(sK,v=>fmt(v),{avg:aK}):'<div class="cap">Se arma al cerrar cada jornada con los km del auto.</div>'}<div class="cap">Lo que te paga el trabajo por cada km recorrido, sin contar gastos.</div></div>`;
-  /* 4) mejores */
   const dG=porDiaSemana('gan'),dH=porDiaSemana('hora'),dK=porDiaSemana('km');
   const top=a=>a.filter(x=>x.n>0).sort((x,y)=>y.v-x.v)[0];
   const bG=top(dG),bH=top(dH),bK=top(dK),fr=franjas();
@@ -336,7 +460,6 @@ function bloqueGraficas(){
     <div class="bt"><div class="t">⏱️ Mejor día por hora</div><b>${dia(bH)}</b><div class="s">${bH?fmt(bH.v)+'/h':'faltan datos'}</div></div>
     <div class="bt"><div class="t">📏 Mejor día por km</div><b>${dia(bK)}</b><div class="s">${bK?fmt(bK.v)+'/km':'faltan datos'}</div></div>
     <div class="bt"><div class="t">🕒 Mejor horario</div><b style="text-transform:none">${fr.length?fr[0].h+' a '+((fr[0].h+1)%24)+' hs':'—'}</b><div class="s">${fr.length?fmt(fr[0].ph)+'/h':'faltan datos'}</div></div></div></div>`;
-  /* 5) por horario del día */
   const H=horarios(),con=H.filter(x=>x.ph!==null);let c5;
   if(con.length>=2){const mn=Math.min(...con.map(x=>x.h)),mx=Math.max(...con.map(x=>x.h)),bestH=fr[0].h,items=[];
     for(let h=mn;h<=mx;h++){const x=H[h];items.push({l:(mx-mn>11&&(h-mn)%2)?'':String(h),v:x.ph||0,hi:h===bestH});}
@@ -344,7 +467,6 @@ function bloqueGraficas(){
     c5=`<div class="card"><h4>¿En qué horario te va mejor?</h4><div class="mut" style="margin-top:2px">Ingreso por hora trabajada, según la hora del día (últimos 60 días, sin gastos)</div>${bars(items,fmtK)}
     <div class="cap">🥇 ${bestH}–${(bestH+1)%24} hs es tu mejor horario (${fmt(fr[0].ph)}/h)${fr.length>1?` · el más flojo es ${peor.h}–${(peor.h+1)%24} hs (${fmt(peor.ph)}/h)`:''}.</div></div>`;}
   else c5=`<div class="card"><h4>¿En qué horario te va mejor?</h4><div class="cap" style="margin-top:8px">Con unas jornadas cargadas vas a ver en qué horarios del día rendís mejor.</div></div>`;
-  /* 6) por día de la semana */
   const hiD=bG?bG.l:null;
   const c6=bG?`<div class="card"><h4>Ingreso por día de la semana</h4><div class="mut" style="margin-top:2px">Promedio de las últimas 8 semanas, sin gastos</div>${bars(dG.map(x=>({l:x.l,v:x.v,hi:x.l===hiD})),fmtK)}
     <div class="cap">Los ${dia(bG)} son tu mejor día: ${fmt(bG.v)} en promedio.</div></div>`:'';
@@ -389,30 +511,109 @@ function vFlota(){
   (rows.length?rows.map((x,idx)=>`<div class="card"><div class="jc"><div><b>${idx===0&&x.c.gan>0?'🏆 ':''}${esc(x.i.nombre||'Chofer')}</b><div class="mut">${esc(x.i.vehiculo||'sin vehículo')}</div></div><div style="text-align:right"><div style="font-size:22px;font-weight:800" class="${x.c.gan<0?'neg':'pos'}">${fmt(x.c.gan)}</div><div class="mut">${x.c.abierta?'<span class="on-dot">●</span> En jornada':'○ Sin jornada'}</div></div></div>
   <div class="mut" style="margin-top:8px">${x.c.viajes} viajes · ingreso ${fmt(x.c.neto)} · gastos ${fmt(x.c.gastos)}<br>${x.c.ph?fmt(x.c.ph)+'/h':'—/h'} · ${x.c.pk?fmt(x.c.pk)+'/km':'—/km'} · último viaje ${ago(x.c.ultimo)}</div></div>`).join(''):'<div class="card"><p class="mut">Todavía no se unió ningún chofer. Compartí el código desde Ajustes.</p></div>');}
 
+function vCuenta(){
+  if(!FB_ON)return '';const a=acceso(),ac=S.acct||{};
+  const est=esAdminCuenta()?'Administrador':a.ok?(a.tipo==='demo'?'Prueba gratis · '+a.dias+' d restantes':'Activa · vence '+fday(ac.vence)):'Sin acceso';
+  return `<div class="card"><b>Mi cuenta</b><div class="row"><span class="mut">Email</span><span style="word-break:break-all;text-align:right">${esc(me?me.email:'')}</span></div>
+  <div class="row"><span class="mut">Estado</span><b style="font-size:14px">${esc(est)}</b></div>
+  <div class="grid2" style="margin:10px 0 0"><button class="btn sm sec" style="padding:12px" onclick="cambiarPass()">Cambiar contraseña</button><button class="btn sm sec" style="padding:12px" onclick="salir()">Cerrar sesión</button></div></div>`;}
 function vCfg(){const f=S.flota,lim=FM.limiteChoferes||2,n=Object.keys(FM.choferes||{}).length;
   const msg=`Sumate a mi flota en manejAr con este código: ${f.id}  ${location.href.split('#')[0]}`;
   let fl='';
   if(!FB_ON)fl='<p class="mut">Modo local: tus datos se guardan solo en este teléfono. El plan Flota (nube + dueño) se activa configurando Firebase.</p>';
   else if(!f.id)fl=`<p class="mut">Plan Flota: el dueño ve en tiempo real lo que cargan sus choferes.</p><button class="btn" onclick="crearFlota()">Soy dueño: crear flota</button>
-    <label>O unite a una flota con código</label><input id="f_code" maxlength="6" placeholder="CÓDIGO" style="text-transform:uppercase;text-align:center"><button class="btn sec" onclick="unirme()">Unirme como chofer</button>`;
+    <label for="f_code">O unite a una flota con código</label><input id="f_code" maxlength="6" placeholder="CÓDIGO" style="text-transform:uppercase;text-align:center"><button class="btn sec" onclick="unirme()">Unirme como chofer</button>`;
   else if(f.rol==='owner')fl=`<div class="mut">Código de tu flota</div><div class="big" style="letter-spacing:4px">${esc(f.id)}</div>
-    <div class="grid2" style="margin:10px 0"><a class="btn sm" style="text-align:center;text-decoration:none;padding:14px" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">WhatsApp</a><button class="btn sm sec" style="padding:14px" onclick="copiar('${esc(msg).replace(/'/g,'')}')">Copiar</button></div>
+    <div class="grid2" style="margin:10px 0"><a class="btn sm" style="padding:14px" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">WhatsApp</a><button class="btn sm sec" style="padding:14px" onclick="copiar('${esc(msg).replace(/'/g,'')}')">Copiar</button></div>
     <div class="mut">Choferes: ${n} de ${lim} (plan actual)</div>`+Object.keys(FM.choferes||{}).map(id=>`<div class="row"><span>${esc(FM.choferes[id].nombre||'Chofer')} <span class="mut">${esc(FM.choferes[id].vehiculo||'')}</span></span><button class="btn sm sec" onclick="quitarChofer('${esc(id)}')">Quitar</button></div>`).join('');
   else fl=`<p>Estás en la flota <b>${esc(f.id)}</b>. Tus viajes, gastos y jornadas se envían a tu dueño.</p><button class="btn sec" onclick="salirFlota()">Salir de la flota</button>`;
-  return `<div class="card"><b>Mis datos</b><label>Nombre</label><input id="c_nom" maxlength="30" value="${esc(S.cfg.nombre)}"><label>Vehículo / patente</label><input id="c_veh" maxlength="30" value="${esc(S.cfg.vehiculo)}"></div>
-  <div class="card"><b>Comisión de cada plataforma (%)</b><div class="mut">Valores de arranque; ajustalos según tu caso real.</div><div class="grid2" style="margin-top:8px">${PLATS.map(p=>`<div><label>${p}</label><input id="c_${p}" type="number" inputmode="decimal" value="${S.cfg.com[p]}"></div>`).join('')}</div></div>
+  return vCuenta()+`<div class="card"><b>Mis datos</b><label for="c_nom">Nombre</label><input id="c_nom" maxlength="30" value="${esc(S.cfg.nombre)}"><label for="c_veh">Vehículo / patente</label><input id="c_veh" maxlength="30" value="${esc(S.cfg.vehiculo)}"></div>
+  <div class="card"><b>Comisión de cada plataforma (%)</b><div class="mut">Valores de arranque; ajustalos según tu caso real.</div><div class="grid2" style="margin-top:8px">${PLATS.map(p=>`<div><label for="c_${p}">${p}</label><input id="c_${p}" type="number" inputmode="decimal" value="${S.cfg.com[p]}"></div>`).join('')}</div></div>
   <button class="btn" onclick="saveCfg()">Guardar ajustes</button>
   <div class="card"><b>Flota</b><div style="margin-top:8px">${fl}</div></div>
   <div class="card"><b>Mis datos</b><div class="grid2" style="margin-top:10px"><button class="btn sm sec" style="padding:14px" onclick="exportCSV()">Exportar CSV</button><button class="btn sm sec" style="padding:14px" onclick="backup()">Backup JSON</button></div></div>
   <p class="mut" style="text-align:center">manejAr v${VER}</p>`;}
 
+/* ====== PANEL INTERNO (volante + PIN) ====== */
+function openAdminPin(){
+  if(Date.now()<pinLock)return toast('Demasiados intentos. Esperá un momento.');
+  sheet(`<h3>Administración</h3><p class="mut">Ingresá el PIN</p><input id="f_pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" style="text-align:center;font-size:26px"><button class="btn" onclick="adminOk()">Entrar</button>`);
+  setTimeout(()=>{const e=$('#f_pin');if(e)e.focus();},120);}
+function adminOk(){
+  const p=($('#f_pin').value||'');
+  if(p!==ADMIN_PIN){pinFails++;if(pinFails>=5){pinLock=Date.now()+60000;pinFails=0;closeSheet();return toast('Demasiados intentos. Esperá 1 minuto.');}return toast('PIN incorrecto');}
+  pinFails=0;closeSheet();ADMIN_OK=true;
+  if(!FB_ON){sheet(`<h3>Admin</h3><div class="card"><div class="row"><span>Versión</span><b>${VER}</b></div><div class="row"><span>Registros locales</span><b>${S.r.length}</b></div>
+    <div class="row"><span>Firebase</span><b>no configurado</b></div></div><p class="mut">Con Firebase configurado acá vas a administrar las cuentas.</p>
+    <button class="btn red" onclick="borrarTodo()">Borrar todos los datos locales</button><button class="btn sec" onclick="closeSheet()">Cerrar</button>`);return;}
+  if(!esAdminCuenta()){sheet(`<h3>Administración</h3><p>Para administrar cuentas ingresá con tu cuenta de administrador (<b>${esc(ADMIN_EMAIL)}</b>).</p><p class="mut">El PIN abre la puerta, pero el permiso para modificar cuentas lo da esa cuenta.</p><button class="btn sec" onclick="closeSheet()">Cerrar</button>`);ADMIN_OK=false;return;}
+  go('admin');}
+function borrarTodo(){if(!confirm('Esto borra TODO lo guardado en este teléfono. ¿Seguro?'))return;S.r=[];save();closeSheet();render();toast('Datos locales borrados');}
+function listenUsers(){
+  if(!db||!esAdminCuenta()||unsubUL)return;
+  unsubUL=db.collection('usuarios').orderBy('creado','desc').limit(300).onSnapshot(sn=>{UL=sn.docs.map(d=>Object.assign({id:d.id},d.data()));if(tab==='admin'){renderSum();renderUL();}},
+    err=>{console.warn(err);toast('No se pudo leer las cuentas. ¿Verificaste tu email?');});}
+function stUser(u){const now=Date.now();
+  if(u.estado==='bloqueado')return {k:'no',t:'Bloqueado'};
+  if(!u.vence||now>=u.vence)return {k:'no',t:'Vencido'};
+  const d=Math.ceil((u.vence-now)/DAY);return u.estado==='demo'?{k:'demo',t:'Demo · '+d+' d'}:{k:'ok',t:'Activo · '+d+' d'};}
+function setUf(f){uf=f;render();}
+function vAdmin(){
+  const verif=me&&!me.emailVerified?`<div class="card"><b>Verificá tu email</b><p class="mut">Para poder modificar cuentas tu email de administrador tiene que estar verificado.</p><div class="grid2" style="margin:0"><button class="btn sm" style="padding:12px" onclick="reenviarVerif()">Enviar email</button><button class="btn sm sec" style="padding:12px" onclick="yaVerifique()">Ya verifiqué</button></div></div>`:'';
+  return `${verif}<div id="sum"></div>
+  <div class="chips">${[['todo','Todas'],['ok','Activas'],['demo','Demo'],['no','Vencidas / bloq.']].map(([k,l])=>`<button class="chip ${uf===k?'on':''}" onclick="setUf('${k}')">${l}</button>`).join('')}</div>
+  <label for="u_q">Buscar</label><input id="u_q" type="search" placeholder="email o nombre" value="${esc(uq)}" oninput="uq=this.value;renderUL()">
+  <div id="ulist"></div><button class="btn sec" onclick="ADMIN_OK=false;go('inicio')">Salir del panel</button>`;}
+function renderSum(){const el=$('#sum');if(!el)return;const c={ok:0,demo:0,no:0};UL.forEach(u=>c[stUser(u).k]++);
+  el.innerHTML=`<div class="sum"><div><b>${UL.length}</b><span>Total</span></div><div><b class="pos">${c.ok}</b><span>Activas</span></div><div><b style="color:var(--amb)">${c.demo}</b><span>Demo</span></div><div><b class="neg">${c.no}</b><span>Vencidas</span></div></div>`;}
+function renderUL(){const el=$('#ulist');if(!el)return;const q=uq.trim().toLowerCase();
+  const l=UL.filter(u=>(uf==='todo'||stUser(u).k===uf)&&(!q||(u.email||'').toLowerCase().includes(q)||(u.nombre||'').toLowerCase().includes(q)));
+  el.innerHTML=l.length?l.map(u=>{const s=stUser(u);return `<div class="card ucard" onclick="openUser('${esc(u.id)}')"><div class="jc"><div style="min-width:0"><b style="word-break:break-all">${esc(u.email)}</b><div class="mut">${esc(u.nombre||'sin nombre')} · alta ${fday(u.creado)}</div></div><span class="st ${s.k}">${s.t}</span></div><div class="mut" style="margin-top:6px">Vence: ${fday(u.vence)}${u.ultimoPago?' · último pago '+fday(u.ultimoPago):''}</div></div>`;}).join(''):'<div class="card"><p class="mut">No hay cuentas para mostrar.</p></div>';}
+function reenviarVerif(){if(me)me.sendEmailVerification().then(()=>toast('Te enviamos el email de verificación')).catch(()=>toast('No se pudo enviar'));}
+async function yaVerifique(){try{await me.reload();await me.getIdToken(true);me=auth.currentUser;if(unsubUL){unsubUL();unsubUL=null;}render();listenUsers();toast(me.emailVerified?'Email verificado':'Todavía no figura verificado');}catch(e){toast('No se pudo comprobar');}}
+async function openUser(id){
+  const u=UL.find(x=>x.id===id);if(!u)return;SEL.dias='30';SEL.est=u.estado||'demo';
+  const s=stUser(u);
+  sheet(`<h3 style="word-break:break-all">${esc(u.email)}</h3><div class="mut">${esc(u.nombre||'sin nombre')} · alta ${fday(u.creado)} <span class="st ${s.k}" style="margin-left:6px">${s.t}</span></div>
+  <div class="card" style="margin-top:12px"><b>Registrar pago</b><div class="mut">Suma días a partir de hoy o del vencimiento, lo que sea mayor, y deja la cuenta activa.</div>
+   <label for="p_monto">Monto cobrado ($)</label><input id="p_monto" type="number" inputmode="decimal" placeholder="$ 0">
+   <label>Días que incluye</label>${chips('dias',['30','60','90','365'],'30')}
+   <label for="p_nota">Nota (medio de pago, opcional)</label><input id="p_nota" maxlength="60" placeholder="Mercado Pago, transferencia…">
+   <button class="btn" onclick="registrarPago('${esc(u.id)}')">Registrar pago y activar</button></div>
+  <div class="card"><b>Editar cuenta</b><label>Estado</label>${chips('est',['demo','activo','bloqueado'],SEL.est)}
+   <label for="u_vence">Vence el</label><input id="u_vence" type="date" value="${u.vence?toLocal(u.vence).slice(0,10):''}">
+   <label for="u_nota">Nota interna</label><input id="u_nota" maxlength="120" value="${esc(u.nota||'')}">
+   <button class="btn sec" onclick="guardarUser('${esc(u.id)}')">Guardar cambios</button></div>
+  <div class="card"><b>Pagos registrados</b><div id="pagos" class="mut" style="margin-top:6px">Cargando…</div></div>
+  <button class="btn sec" onclick="closeSheet()">Cerrar</button>`);
+  try{const sn=await db.collection('usuarios').doc(id).collection('pagos').orderBy('ts','desc').limit(10).get();const el=$('#pagos');
+    if(el)el.innerHTML=sn.docs.length?sn.docs.map(d=>{const p=d.data();return `<div class="row"><span>${fday(p.ts)} · +${p.dias} d${p.nota?' · '+esc(p.nota):''}</span><b>${fmt(p.monto)}</b></div>`;}).join(''):'Sin pagos registrados.';}
+  catch(e){const el=$('#pagos');if(el)el.textContent='No se pudieron leer los pagos.';}}
+async function registrarPago(id){
+  const u=UL.find(x=>x.id===id);if(!u)return;const monto=num($('#p_monto').value);if(!(monto>=0)||isNaN(monto))return toast('Ingresá el monto cobrado');
+  const dias=parseInt(SEL.dias||'30',10),base=Math.max(Date.now(),u.vence||0),vence=base+dias*DAY,nota=($('#p_nota').value||'').slice(0,60);
+  try{const ref=db.collection('usuarios').doc(id),bt=db.batch();
+    bt.update(ref,{estado:'activo',vence,ultimoPago:Date.now()});
+    bt.set(ref.collection('pagos').doc(),{ts:Date.now(),monto,dias,nota});
+    await bt.commit();closeSheet();toast('Pago registrado · vence '+fday(vence));}
+  catch(e){toast('No se pudo registrar. ¿Verificaste tu email de administrador?');}}
+async function guardarUser(id){
+  const f=$('#u_vence').value,patch={estado:SEL.est||'demo',nota:($('#u_nota').value||'').slice(0,120)};
+  if(f)patch.vence=fromLocal(f+'T23:59:00');
+  try{await db.collection('usuarios').doc(id).update(patch);closeSheet();toast('Cambios guardados');}
+  catch(e){toast('No se pudo guardar. ¿Verificaste tu email de administrador?');}}
+
 function render(){
   const ow=S.flota.rol==='owner';
-  const tabs=[['inicio','🏠','Inicio'],['res','📊','Resultados'],['hist','🕘','Historial']].concat(ow?[['flota','👥','Flota']]:[]).concat([['cfg','⚙️','Ajustes']]);
-  if(tab==='flota'&&!ow)tab='inicio';
+  if(FB_ON&&gate!=='app'){
+    $('#nav').innerHTML='';$('#rolBadge').style.display='none';
+    $('#view').innerHTML=gate==='auth'?vAuth():gate==='block'?vBlock():'<p class="mut" style="text-align:center;margin-top:60px">Cargando…</p>';return;}
+  const tabs=[['inicio','🏠','Inicio'],['res','📊','Resultados'],['hist','🕘','Historial']].concat(ow?[['flota','👥','Flota']]:[]).concat(ADMIN_OK&&FB_ON&&esAdminCuenta()?[['admin','🛠️','Cuentas']]:[]).concat([['cfg','⚙️','Ajustes']]);
+  if(tab==='flota'&&!ow)tab='inicio';if(tab==='admin'&&!(ADMIN_OK&&esAdminCuenta()))tab='inicio';
   $('#nav').innerHTML=tabs.map(([k,i,l])=>`<button class="${tab===k?'on':''}" onclick="go('${k}')"><i>${i}</i>${l}</button>`).join('');
   $('#rolBadge').textContent=ow?'Dueño':(S.flota.rol==='driver'?'Flota':'');$('#rolBadge').style.display=S.flota.rol?'':'none';
-  $('#view').innerHTML=({inicio:vInicio,res:vRes,hist:vHist,flota:vFlota,cfg:vCfg}[tab])();
+  $('#view').innerHTML=(tab==='admin'?'':bannerCuenta())+({inicio:vInicio,res:vRes,hist:vHist,flota:vFlota,cfg:vCfg,admin:vAdmin}[tab])();
+  if(tab==='admin'){renderSum();renderUL();}
 }
 function saveCfg(){S.cfg.nombre=$('#c_nom').value.trim();S.cfg.vehiculo=$('#c_veh').value.trim();
   for(const p of PLATS){const v=num($('#c_'+p).value);S.cfg.com[p]=(v>=0&&v<=100)?v:S.cfg.com[p];}
@@ -430,15 +631,15 @@ function exportCSV(){const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
 function backup(){download('manejar-backup-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(S),'application/json');}
 function copiar(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Copiado')).catch(()=>toast('No se pudo copiar'));}
 
-/* ====== FIREBASE / FLOTA ====== */
-async function fbInit(){
-  if(!FB_ON)return;
-  try{firebase.initializeApp(FB);auth=firebase.auth();db=firebase.firestore();
-    db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
-    await new Promise((res,rej)=>{const t=setTimeout(()=>rej(new Error('timeout')),8000);auth.onAuthStateChanged(u=>{if(u){me=u;clearTimeout(t);res();}});auth.signInAnonymously().catch(rej);});
-    if(S.flota.id){listenFlota();if(S.flota.rol==='driver')syncAll();}
-  }catch(e){console.warn('Firebase no disponible',e);}
-}
+/* ====== NUBE: copia de datos + FLOTA ====== */
+async function syncNube(){
+  if(!db||!me)return;
+  try{const col=db.collection('usuarios').doc(me.uid).collection('registros'),sn=await col.get(),cloud={};
+    sn.forEach(d=>{cloud[d.id]=d.data();});let nuevo=false;
+    for(const id in cloud){if(!S.r.find(x=>x.id===id)){S.r.push(cloud[id]);nuevo=true;}}
+    const sub=S.r.filter(r=>!cloud[r.id]);
+    for(let i=0;i<sub.length;i+=400){const bt=db.batch();sub.slice(i,i+400).forEach(r=>bt.set(col.doc(r.id),r));await bt.commit();}
+    if(nuevo){save();render();}}catch(e){console.warn('syncNube',e);}}
 function genCode(){const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=c[Math.floor(Math.random()*c.length)];return s;}
 async function crearFlota(){if(!db||!me)return toast('Sin conexión con la nube');
   const id=genCode();
@@ -464,24 +665,19 @@ function listenFlota(){if(!db||!S.flota.id)return;if(unsubA)unsubA();if(unsubB)u
   unsubA=ref.onSnapshot(sn=>{if(sn.exists){FM=sn.data();if(tab==='flota'||tab==='cfg')render();}},()=>{});
   const ini=rango('mes')[0];
   unsubB=ref.collection('registros').where('ts','>=',ini).onSnapshot(sn=>{FD=sn.docs.map(d=>d.data());if(tab==='flota')render();},()=>{});}
-function pushRec(r){if(!db||!me||S.flota.rol!=='driver'||!S.flota.id)return;
-  db.collection('flotas').doc(S.flota.id).collection('registros').doc(me.uid+'_'+r.id)
+function pushRec(r){
+  if(!db||!me||gate!=='app')return;
+  db.collection('usuarios').doc(me.uid).collection('registros').doc(r.id).set(r).catch(()=>{});
+  if(S.flota.rol==='driver'&&S.flota.id)db.collection('flotas').doc(S.flota.id).collection('registros').doc(me.uid+'_'+r.id)
     .set(Object.assign({},r,{choferUid:me.uid,choferNombre:S.cfg.nombre||'Chofer',vehiculo:S.cfg.vehiculo||''})).catch(()=>{});}
-function dropRec(id){if(!db||!me||S.flota.rol!=='driver'||!S.flota.id)return;
-  db.collection('flotas').doc(S.flota.id).collection('registros').doc(me.uid+'_'+id).delete().catch(()=>{});}
+function dropRec(id){
+  if(!db||!me||gate!=='app')return;
+  db.collection('usuarios').doc(me.uid).collection('registros').doc(id).delete().catch(()=>{});
+  if(S.flota.rol==='driver'&&S.flota.id)db.collection('flotas').doc(S.flota.id).collection('registros').doc(me.uid+'_'+id).delete().catch(()=>{});}
 async function syncAll(){if(!db||!me||S.flota.rol!=='driver')return;
   const ini=rango('mes')[0];const rs=S.r.filter(r=>r.ts>=ini);
   for(let i=0;i<rs.length;i+=400){const bt=db.batch();rs.slice(i,i+400).forEach(r=>bt.set(db.collection('flotas').doc(S.flota.id).collection('registros').doc(me.uid+'_'+r.id),Object.assign({},r,{choferUid:me.uid,choferNombre:S.cfg.nombre||'Chofer',vehiculo:S.cfg.vehiculo||''})));
     try{await bt.commit();}catch(e){}}}
-
-/* ====== ADMIN (5 toques en el logo + PIN) ====== */
-function logoTap(){const n=Date.now();taps=taps.filter(t=>n-t<3000);taps.push(n);
-  if(taps.length>=5){taps=[];sheet(`<h3>Acceso admin</h3><input id="f_pin" type="password" inputmode="numeric" placeholder="PIN" style="text-align:center"><button class="btn" onclick="adminOk()">Entrar</button>`);}}
-function adminOk(){if($('#f_pin').value!==ADMIN_PIN)return toast('PIN incorrecto');
-  sheet(`<h3>Admin</h3><div class="card"><div class="row"><span>Versión</span><b>${VER}</b></div><div class="row"><span>Registros locales</span><b>${S.r.length}</b></div>
-  <div class="row"><span>Firebase</span><b>${FB_ON?(me?'conectado':'sin sesión'):'no configurado'}</b></div><div class="row"><span>Flota</span><b>${esc(S.flota.id||'—')} ${esc(S.flota.rol||'')}</b></div></div>
-  <button class="btn red" onclick="borrarTodo()">Borrar todos los datos locales</button><button class="btn sec" onclick="closeSheet()">Cerrar</button>`);}
-function borrarTodo(){if(!confirm('Esto borra TODO lo guardado en este teléfono. ¿Seguro?'))return;S.r=[];save();closeSheet();render();toast('Datos locales borrados');}
 
 /* ====== PWA ====== */
 (function pwa(){
@@ -494,7 +690,9 @@ function borrarTodo(){if(!confirm('Esto borra TODO lo guardado en este teléfono
 /* ====== ARRANQUE ====== */
 applyTema();render();
 setTimeout(()=>{const s=$('#splash');s.style.opacity='0';setTimeout(()=>s.remove(),500);},1300);
-setInterval(()=>{if(tab==='flota'||tab==='inicio')render();},60000);
+setInterval(()=>{
+  if(FB_ON&&gate==='app'&&!acceso().ok){evaluarAcceso();return;}
+  if(tab==='flota'||tab==='inicio')render();},60000);
 fbInit();
 </script>
 </body>
