@@ -1,12 +1,14 @@
 <!DOCTYPE html>
 <!--
-  manejAr v1.0.0 — 2026-10-24
+  manejAr v1.1.0 — 2026-10-24
   Control de ganancias real para choferes de Uber / Didi / Cabify.
   Stack: single-file HTML + Firebase compat (opcional) + GitHub Pages. Service worker: sw-manejar.js (raíz del repo).
 
   CHANGELOG
-  - 1.0.0: carga de viajes en 2 toques, combustible/gastos, jornada con km, resultados con gráficos táctiles,
-           comparativa vs ayer, mejor día de la semana, mejor franja horaria ($/h), $/km, plan Flota (dueño ve choferes en vivo),
+  - 1.1.0: Resultados centrado en gráficas: "Tu jornada de hoy" (ganancia hora por hora + ritmo $/h y $/km vs promedio 7 días),
+           $/hora y $/km de los últimos 7 días con línea de promedio, resumen de mejores (día / horario), gráfica de ganancia
+           por horario del día y por día de la semana. Gráficas rehechas con ejes y alturas consistentes.
+  - 1.0.0: carga de viajes en 2 toques, combustible/gastos, jornada con km, comparativa vs ayer, plan Flota (dueño ve choferes en vivo),
            PIN admin oculto (5 toques), modo claro/oscuro, export CSV y backup JSON.
 
   PENDIENTE
@@ -21,8 +23,8 @@
 <meta name="theme-color" content="#0b1220">
 <title>manejAr</title>
 <style>
-:root{--bg:#0b1220;--card:#121a2b;--card2:#1a2438;--tx:#e8edf7;--mut:#8b97b1;--ac:#22c55e;--amb:#f59e0b;--red:#ef4444;--bd:#243049}
-[data-theme=light]{--bg:#f3f5f9;--card:#fff;--card2:#eef1f7;--tx:#0f172a;--mut:#64748b;--bd:#dde3ee}
+:root{--bg:#0b1220;--card:#121a2b;--card2:#1a2438;--tx:#e8edf7;--mut:#8b97b1;--ac:#22c55e;--amb:#f59e0b;--red:#ef4444;--bd:#243049;--bar:#36496a}
+[data-theme=light]{--bg:#f3f5f9;--card:#fff;--card2:#eef1f7;--tx:#0f172a;--mut:#64748b;--bd:#dde3ee;--bar:#c3cde0}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 body{padding-bottom:84px}
@@ -56,17 +58,29 @@ nav button i{display:block;font-style:normal;font-size:21px}nav button.on{color:
 .sh h3{margin:0 0 4px;font-size:20px}
 #toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:11px 18px;border-radius:30px;font-weight:700;font-size:14px;z-index:40;opacity:0;pointer-events:none;transition:.25s;max-width:90%;text-align:center}
 #toast.show{opacity:1}
-.bars{display:flex;align-items:flex-end;gap:6px;height:150px;margin:10px 0 4px}
-.bc{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
-.bb{width:100%;background:var(--card2);border:1px solid var(--bd);border-radius:8px 8px 3px 3px;min-height:3px}
-.bb.hi{background:var(--ac);border-color:var(--ac)}
-.bv{font-size:10px;color:var(--mut);margin-bottom:3px;white-space:nowrap}.bl{font-size:11px;color:var(--mut);margin-top:5px}
+/* gráficas de barras */
+.chart{margin-top:24px}
+.plot{position:relative;height:130px;display:flex;align-items:flex-end;gap:5px;border-bottom:1px solid var(--bd)}
+.bw{flex:1;min-width:0;height:100%;position:relative;display:flex;align-items:flex-end}
+.bb{width:100%;background:var(--bar);border-radius:6px 6px 2px 2px}
+.bb.hi{background:var(--ac)}
+.bv{position:absolute;left:50%;transform:translateX(-50%);font-size:10px;color:var(--mut);white-space:nowrap;font-weight:600;z-index:2;background:var(--card);padding:0 3px;border-radius:4px}
+.bv:empty{display:none}
+.avg{position:absolute;left:0;right:0;border-top:1.5px dashed var(--amb);pointer-events:none}
+.avg span{position:absolute;right:0;top:-16px;font-size:10px;color:var(--amb);background:var(--card);padding:0 3px;border-radius:4px}
+.labs{display:flex;gap:5px}.bl{flex:1;min-width:0;text-align:center;font-size:11px;color:var(--mut);margin-top:5px}
+.cap{font-size:12px;color:var(--mut);margin-top:10px;line-height:1.5}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.kpi{background:var(--card2);border-radius:14px;padding:12px}
+.kpi b{font-size:22px;display:block;margin:2px 0}
+.best{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bt{background:var(--card2);border-radius:14px;padding:12px}.bt .t{font-size:12px;color:var(--mut)}.bt b{display:block;font-size:17px;margin-top:2px;text-transform:capitalize}.bt .s{font-size:12px;color:var(--ac);font-weight:600}
 .row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd);gap:10px}.row:last-child{border:0}
 .row b{font-size:16px}
 .donut{width:120px;height:120px;border-radius:50%;flex:none;position:relative}
 .donut:after{content:"";position:absolute;inset:24px;background:var(--card);border-radius:50%}
 .leg{font-size:13px;line-height:1.9}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
-.wf{height:12px;border-radius:6px;background:var(--card2);overflow:hidden;margin:4px 0 10px}.wf>div{height:100%}
+h4{margin:0;font-size:16px}
 #splash{position:fixed;inset:0;background:#0b1220;z-index:99;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .5s}
 #splash .w{font-size:38px;font-weight:800;color:#e8edf7}#splash .w span{color:#22c55e}
 .road{width:200px;height:4px;background:#243049;border-radius:4px;margin-top:22px;overflow:hidden;position:relative}
@@ -93,7 +107,7 @@ nav button i{display:block;font-style:normal;font-size:21px}nav button.on{color:
 <script>
 'use strict';
 /* ====== CONFIG ====== */
-const VER='1.0.0', KEY='manejar_v1', ADMIN_PIN='2580', DAY=864e5;
+const VER='1.1.0', KEY='manejar_v1', ADMIN_PIN='2580', DAY=864e5;
 const FB={apiKey:'REEMPLAZAR',authDomain:'REEMPLAZAR.firebaseapp.com',projectId:'REEMPLAZAR',appId:'REEMPLAZAR'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined';
 const PLATS=['Uber','Didi','Cabify','Otro'];
@@ -146,24 +160,44 @@ const MET={
   km:{n:'Ganancia por km',f:c=>c.pk,fm:v=>fmt(v)+'/km',ok:c=>c.km>0&&c.viajes>0},
   via:{n:'Viajes',f:c=>c.viajes,fm:v=>String(Math.round(v)),ok:c=>c.viajes>0}
 };
-function serie(k,dias){const s=sod(Date.now()),out=[];for(let i=dias-1;i>=0;i--){const a=s-i*DAY,c=calc(S.r,a,a+DAY);out.push({l:DIAS[new Date(a).getDay()],v:MET[k].f(c),hi:i===0,ok:MET[k].ok(c),a});}return out;}
+function serie(k,dias){const s=sod(Date.now()),out=[];for(let i=dias-1;i>=0;i--){const a=s-i*DAY,c=calc(S.r,a,a+DAY);out.push({l:DIAS[new Date(a).getDay()],v:MET[k].ok(c)?MET[k].f(c):0,hi:i===0,ok:MET[k].ok(c),a});}return out;}
+function promSerie(ser){const o=ser.filter(x=>x.ok);return o.length?o.reduce((s,x)=>s+x.v,0)/o.length:0;}
 function porDiaSemana(k){const s=sod(Date.now()),sum=Array(7).fill(0),n=Array(7).fill(0);
   for(let i=0;i<56;i++){const a=s-i*DAY,c=calc(S.r,a,a+DAY);if(MET[k].ok(c)){const d=new Date(a).getDay();sum[d]+=MET[k].f(c);n[d]++;}}
   return DIAS.map((l,d)=>({l,v:n[d]?sum[d]/n[d]:0,n:n[d]}));}
-function franjas(){const from=Date.now()-60*DAY,inc=Array(24).fill(0),wk=Array(24).fill(0);
+/* ingreso neto (después de comisiones) por hora del reloj, sobre las horas realmente trabajadas, últimos 60 días */
+function horarios(){const from=Date.now()-60*DAY,inc=Array(24).fill(0),wk=Array(24).fill(0);
   for(const r of S.r){if(r.ts<from)continue;
     if(r.t==='v')inc[new Date(r.ts).getHours()]+=r.monto-(r.comMonto||0);
     else if(r.t==='j'){let t=r.inicio;const f=r.fin||Date.now();while(t<f){const d=new Date(t),nx=new Date(t);nx.setMinutes(0,0,0);nx.setHours(d.getHours()+1);const e=Math.min(nx.getTime(),f);wk[d.getHours()]+=(e-t)/36e5;t=e;}}}
-  return inc.map((v,h)=>({h,ph:wk[h]>=1?v/wk[h]:null,hrs:wk[h]})).filter(x=>x.ph!==null).sort((a,b)=>b.ph-a.ph);}
+  return inc.map((v,h)=>({h,ph:wk[h]>=1?v/wk[h]:null,hrs:wk[h]}));}
+function franjas(){return horarios().filter(x=>x.ph!==null).sort((a,b)=>b.ph-a.ph);}
+/* ingreso neto por hora de HOY (para la gráfica de la jornada) */
+function horasHoy(){const s=sod(Date.now()),inc={};let min=24,max=-1;
+  for(const r of S.r){if(r.ts<s||r.ts>=s+DAY)continue;
+    if(r.t==='v'){const h=new Date(r.ts).getHours();inc[h]=(inc[h]||0)+r.monto-(r.comMonto||0);min=Math.min(min,h);max=Math.max(max,h);}
+    else if(r.t==='j'){const h=new Date(r.inicio).getHours();min=Math.min(min,h);max=Math.max(max,r.fin?new Date(r.fin).getHours():new Date().getHours());}}
+  if(max<0)return [];const out=[];let bh=-1,bv=0;for(let h=min;h<=max;h++)if((inc[h]||0)>bv){bv=inc[h];bh=h;}
+  for(let h=min;h<=max;h++)out.push({l:String(h),v:inc[h]||0,hi:h===bh});return out;}
+function ritmo(k){const s=sod(Date.now()),hoy=calc(S.r,s,s+DAY);let sum=0,n=0;
+  for(let i=1;i<=7;i++){const a=s-i*DAY,c=calc(S.r,a,a+DAY);if(MET[k].ok(c)){sum+=MET[k].f(c);n++;}}
+  return {v:MET[k].f(hoy),avg:n?sum/n:0,n,ok:MET[k].ok(hoy)&&hoy.horas>=0.25,hoy};}
 function jornadaAbierta(){return S.r.find(r=>r.t==='j'&&!r.fin);}
 function ultimoKm(){const j=S.r.filter(r=>r.t==='j'&&r.fin).sort((a,b)=>b.ts-a.ts)[0];return j?j.kmFin:'';}
 
 /* ====== GRÁFICOS ====== */
-function bars(items,fm){const mx=Math.max(1,...items.map(i=>Math.max(0,i.v)));
-  return '<div class="bars">'+items.map(i=>`<div class="bc"><div class="bv">${i.v>0?esc(fm(i.v)):''}</div><div class="bb ${i.hi?'hi':''}" style="height:${Math.max(3,Math.max(0,i.v)/mx*100)}%"></div><div class="bl">${esc(i.l)}</div></div>`).join('')+'</div>';}
+function bars(items,fm,opt){opt=opt||{};const n=items.length,mx=Math.max(1,...items.map(i=>Math.max(0,i.v)),opt.avg||0);
+  const cols=items.map(i=>{const p=Math.max(0,i.v)/mx*100;const show=i.v>0&&(n<=8||i.hi);
+    return `<div class="bw"><span class="bv" style="bottom:calc(${p}% + 3px)">${show?esc(fm(i.v)):''}</span><div class="bb ${i.hi?'hi':''}" style="height:${i.v>0?Math.max(p,2):0}%"></div></div>`;}).join('');
+  const labs=items.map(i=>`<div class="bl">${esc(i.l)}</div>`).join('');
+  const avg=opt.avg>0?`<div class="avg" style="bottom:${opt.avg/mx*100}%"><span>prom. ${esc(fm(opt.avg))}</span></div>`:'';
+  return `<div class="chart"><div class="plot">${cols}${avg}</div><div class="labs">${labs}</div></div>`;}
 function donut(c){if(c.bruto<=0)return '<div class="donut" style="background:var(--card2)"></div>';
   const pc=c.com/c.bruto*100,pg=c.gastos/c.bruto*100,pn=Math.max(0,100-pc-pg);
   return `<div class="donut" style="background:conic-gradient(var(--amb) 0 ${pc}%,var(--red) ${pc}% ${pc+pg}%,var(--ac) ${pc+pg}% ${pc+pg+pn}%)"></div>`;}
+function delta(r,fm){if(!r.ok)return '<span class="mut">se calcula con más datos</span>';
+  let d='';if(r.avg>0){const p=(r.v-r.avg)/r.avg*100;d=` <span class="${p>=0?'pos':'neg'}" style="font-weight:700">${p>=0?'▲':'▼'} ${Math.abs(p).toFixed(0)}%</span>`;}
+  return `<span class="mut">prom. 7 días ${r.avg>0?fm(r.avg):'—'}</span>${d}`;}
 
 /* ====== UI BASE ====== */
 function sheet(h){$('#ov').innerHTML=`<div class="ov" onclick="if(event.target===this)closeSheet()"><div class="sh">${h}</div></div>`;}
@@ -243,14 +277,15 @@ function openMetric(k){
   if(best)extra+=`<div class="row"><span>🏆 Mejor día de la semana</span><b>${DIAS_L[DIAS.indexOf(best.l)]} · ${M.fm(best.v)}</b></div>`;
   if(okSer)extra+=`<div class="row"><span>⭐ Mejor día de estos 7</span><b>${DIAS_L[new Date(okSer.a).getDay()]} · ${M.fm(okSer.v)}</b></div>`;
   let fr='';
-  if(k==='hora'){const f=franjas();if(f.length){fr=`<div class="card" style="margin-top:12px"><b>Mejores franjas horarias</b><div class="mut" style="margin-bottom:6px">Ganancia por hora trabajada, últimos 60 días</div>`+
+  if(k==='hora'){const f=franjas();if(f.length){fr=`<div class="card" style="margin-top:12px"><b>Mejores franjas horarias</b><div class="mut" style="margin-bottom:6px">Ingreso por hora trabajada (después de comisiones), últimos 60 días</div>`+
     f.slice(0,3).map((x,i)=>`<div class="row"><span>${['🥇','🥈','🥉'][i]} ${x.h}–${(x.h+1)%24} hs</span><b>${fmt(x.ph)}/h</b></div>`).join('')+
     (f.length>3?`<div class="row"><span class="mut">Peor franja: ${f[f.length-1].h}–${(f[f.length-1].h+1)%24} hs</span><span class="mut">${fmt(f[f.length-1].ph)}/h</span></div>`:'')+'</div>';}
     else fr='<p class="mut">Necesitás algunas jornadas con viajes para ver las mejores franjas.</p>';}
   if(k==='km'){const w=[...ser].filter(x=>x.ok).sort((a,b)=>a.v-b.v)[0];if(w&&okSer&&w!==okSer)extra+=`<div class="row"><span>📉 Día más flojo (7 días)</span><b>${DIAS_L[new Date(w.a).getDay()]} · ${M.fm(w.v)}</b></div>`;}
+  const f1=v=>k==='via'?String(Math.round(v)):fmtK(v);
   sheet(`<h3>${M.n}</h3><div class="big ${vh<0?'neg':''}">${M.fm(vh)}</div><div class="mut">hoy (en curso)</div><div style="margin-top:4px">${cmp}</div>
-  <div class="card" style="margin-top:12px"><b>Últimos 7 días</b>${bars(ser,v=>k==='via'?String(Math.round(v)):fmtK(v))}</div>
-  <div class="card"><b>Promedio por día de la semana</b><div class="mut">Últimas 8 semanas</div>${bars(dw.map(x=>({l:x.l,v:x.v,hi:best&&x.l===best.l})),v=>k==='via'?v.toFixed(0):fmtK(v))}</div>
+  <div class="card" style="margin-top:12px"><b>Últimos 7 días</b>${bars(ser,f1,{avg:promSerie(ser)})}</div>
+  <div class="card"><b>Promedio por día de la semana</b><div class="mut">Últimas 8 semanas</div>${bars(dw.map(x=>({l:x.l,v:x.v,hi:!!best&&x.l===best.l})),k==='via'?(v=>v.toFixed(0)):fmtK)}</div>
   ${extra?`<div class="card">${extra}</div>`:''}${fr}<button class="btn sec" onclick="closeSheet()">Cerrar</button>`);
 }
 
@@ -259,34 +294,68 @@ function vInicio(){const [a,b]=rango('hoy'),c=calc(S.r,a,b),jo=jornadaAbierta();
   return `<div class="card jc">${jo?`<div><b>🟢 En jornada</b><div class="mut">desde ${hhmm(jo.inicio)} · ${jo.kmIni} km · ${horasStr(Date.now()-jo.inicio)}</div></div><button class="btn sm red" onclick="openJornada()">Cerrar</button>`:`<div><b>Jornada sin iniciar</b><div class="mut">Cargá los km con los que arrancás</div></div><button class="btn sm" onclick="openJornada()">Iniciar</button>`}</div>
   <button class="btn xl" onclick="openViaje()">+ VIAJE</button>
   <div class="grid2"><button class="btn lg amb" onclick="openGasto('Combustible')">⛽ Combustible</button><button class="btn lg sec" onclick="openGasto('Gasto')">🧾 Otro gasto</button></div>
-  <div class="card tap" onclick="go('res')"><div class="mut">Ganancia neta de hoy · tocá para ver más</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>
+  <div class="card tap" onclick="go('res')"><div class="mut">Ganancia neta de hoy · tocá para ver las gráficas</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>
   <div class="mut" style="margin-top:6px">${c.viajes} viajes · bruto ${fmt(c.bruto)} · gastos ${fmt(c.gastos)}${c.horas>0.05?' · '+fmt(c.ph)+'/h':''}</div></div>`;}
 
 function periodChips(cur,fn){return `<div class="chips">`+[['hoy','Hoy'],['sem','7 días'],['mes','Este mes']].map(([k,l])=>`<button class="chip ${cur===k?'on':''}" onclick="${fn}('${k}')">${l}</button>`).join('')+'</div>';}
 function setPer(p){per=p;render();}
+
+/* bloque de gráficas de Resultados */
+function bloqueGraficas(){
+  const s=sod(Date.now()),hoy=calc(S.r,s,s+DAY),rh=ritmo('hora'),rk=ritmo('km'),hh=horasHoy(),jo=jornadaAbierta();
+  const kmNota=(!rk.ok&&jo&&hoy.km===0)?'<div class="mut" style="margin-top:2px">se calcula al cerrar la jornada</div>':'';
+  /* 1) jornada de hoy */
+  let c1=`<div class="card"><div class="jc"><h4>Tu jornada de hoy</h4><span class="mut">${hoy.horas>0.05?hoy.horas.toFixed(1)+' h':''}</span></div>
+    <div class="kpis"><div class="kpi"><span class="mut">Por hora</span><b>${rh.ok?fmt(rh.v)+'/h':'—'}</b>${delta(rh,v=>fmt(v)+'/h')}</div>
+    <div class="kpi"><span class="mut">Por km</span><b>${rk.ok?fmt(rk.v)+'/km':'—'}</b>${rk.ok?delta(rk,v=>fmt(v)+'/km'):'<span class="mut">sin km todavía</span>'+kmNota}</div></div>`;
+  c1+=hh.length?`<div style="margin-top:14px" class="mut">Ingreso neto por hora del día (después de comisiones)</div>${bars(hh,fmtK)}<div class="cap">Cada barra es una hora de reloj. La verde es tu mejor hora de hoy.</div>`
+    :`<div class="cap" style="margin-top:12px">Iniciá la jornada y cargá viajes: acá vas a ver cómo viene tu día hora por hora.</div>`;
+  c1+='</div>';
+  /* 2) $/hora 7 días */
+  const sH=serie('hora',7),sK=serie('km',7),aH=promSerie(sH),aK=promSerie(sK);
+  const c2=`<div class="card tap" onclick="openMetric('hora')"><div class="jc"><h4>Ganancia por hora</h4><span class="mut">7 días ›</span></div>
+    ${sH.some(x=>x.ok)?bars(sH,fmtK,{avg:aH}):'<div class="cap">Se arma con tus jornadas cerradas y tus viajes.</div>'}<div class="cap">Ganancia real (con comisiones y gastos) dividida por las horas de jornada. Tocá para comparar con ayer.</div></div>`;
+  /* 3) $/km 7 días */
+  const c3=`<div class="card tap" onclick="openMetric('km')"><div class="jc"><h4>Ganancia por km</h4><span class="mut">7 días ›</span></div>
+    ${sK.some(x=>x.ok)?bars(sK,v=>fmt(v),{avg:aK}):'<div class="cap">Se arma al cerrar cada jornada con los km del auto.</div>'}<div class="cap">Lo que te queda limpio por cada km recorrido.</div></div>`;
+  /* 4) mejores */
+  const dG=porDiaSemana('gan'),dH=porDiaSemana('hora'),dK=porDiaSemana('km');
+  const top=a=>a.filter(x=>x.n>0).sort((x,y)=>y.v-x.v)[0];
+  const bG=top(dG),bH=top(dH),bK=top(dK),fr=franjas();
+  const dia=x=>x?DIAS_L[DIAS.indexOf(x.l)]:'—';
+  const c4=`<div class="card"><h4>Tus mejores momentos</h4><div class="best" style="margin-top:12px">
+    <div class="bt"><div class="t">🏆 Mejor día (ganancia)</div><b>${dia(bG)}</b><div class="s">${bG?fmt(bG.v)+' por día':'faltan datos'}</div></div>
+    <div class="bt"><div class="t">⏱️ Mejor día por hora</div><b>${dia(bH)}</b><div class="s">${bH?fmt(bH.v)+'/h':'faltan datos'}</div></div>
+    <div class="bt"><div class="t">📏 Mejor día por km</div><b>${dia(bK)}</b><div class="s">${bK?fmt(bK.v)+'/km':'faltan datos'}</div></div>
+    <div class="bt"><div class="t">🕒 Mejor horario</div><b style="text-transform:none">${fr.length?fr[0].h+' a '+((fr[0].h+1)%24)+' hs':'—'}</b><div class="s">${fr.length?fmt(fr[0].ph)+'/h':'faltan datos'}</div></div></div></div>`;
+  /* 5) por horario del día */
+  const H=horarios(),con=H.filter(x=>x.ph!==null);let c5;
+  if(con.length>=2){const mn=Math.min(...con.map(x=>x.h)),mx=Math.max(...con.map(x=>x.h)),bestH=fr[0].h,items=[];
+    for(let h=mn;h<=mx;h++){const x=H[h];items.push({l:(mx-mn>11&&(h-mn)%2)?'':String(h),v:x.ph||0,hi:h===bestH});}
+    const peor=fr[fr.length-1];
+    c5=`<div class="card"><h4>¿En qué horario te va mejor?</h4><div class="mut" style="margin-top:2px">Ingreso por hora trabajada, según la hora del día (últimos 60 días)</div>${bars(items,fmtK)}
+    <div class="cap">🥇 ${bestH}–${(bestH+1)%24} hs es tu mejor horario (${fmt(fr[0].ph)}/h)${fr.length>1?` · el más flojo es ${peor.h}–${(peor.h+1)%24} hs (${fmt(peor.ph)}/h)`:''}.</div></div>`;}
+  else c5=`<div class="card"><h4>¿En qué horario te va mejor?</h4><div class="cap" style="margin-top:8px">Con unas jornadas cargadas vas a ver en qué horarios del día rendís mejor.</div></div>`;
+  /* 6) por día de la semana */
+  const hiD=bG?bG.l:null;
+  const c6=bG?`<div class="card"><h4>Ganancia por día de la semana</h4><div class="mut" style="margin-top:2px">Promedio de las últimas 8 semanas</div>${bars(dG.map(x=>({l:x.l,v:x.v,hi:x.l===hiD})),fmtK)}
+    <div class="cap">Los ${dia(bG)} son tu mejor día: ${fmt(bG.v)} en promedio.</div></div>`:'';
+  return c1+c2+c3+c4+c5+c6;}
+
 function vRes(){const [a,b]=rango(per),c=calc(S.r,a,b),s=sod(Date.now()),ay=calc(S.r,s-DAY,s);
-  let cmp='';if(per==='hoy'&&ay.viajes>0&&ay.gan>0){const d=(c.gan-ay.gan)/ay.gan*100;cmp=`<div style="margin-top:4px"><b class="${d>=0?'pos':'neg'}">${d>=0?'▲':'▼'} ${Math.abs(d).toFixed(0)}%</b> <span class="mut">vs ayer (${fmt(ay.gan)})</span></div>`;}
-  const mx=Math.max(1,c.bruto),w=v=>Math.max(0,v)/mx*100;
+  let cmp='';if(per==='hoy'&&ay.viajes>0&&ay.gan>0&&c.viajes>0){const d=(c.gan-ay.gan)/ay.gan*100;cmp=`<div style="margin-top:4px"><b class="${d>=0?'pos':'neg'}">${d>=0?'▲':'▼'} ${Math.abs(d).toFixed(0)}%</b> <span class="mut">vs ayer (${fmt(ay.gan)})</span></div>`;}
   return periodChips(per,'setPer')+`
-  <div class="card tap" onclick="openMetric('gan')"><div class="mut">Ganancia neta · lo que realmente te queda</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>${cmp}<div class="mut" style="margin-top:6px">Tocá para ver gráfica y comparativas ›</div></div>
-  <div class="grid2" style="margin-bottom:12px">
-   <div class="card tap" style="margin:0" onclick="openMetric('hora')"><div class="mut">Por hora</div><div style="font-size:24px;font-weight:800">${c.ph?fmt(c.ph):'—'}</div><div class="mut">${c.horas.toFixed(1)} h trabajadas</div></div>
-   <div class="card tap" style="margin:0" onclick="openMetric('km')"><div class="mut">Por km</div><div style="font-size:24px;font-weight:800">${c.pk?fmt(c.pk):'—'}</div><div class="mut">${Math.round(c.km)} km recorridos</div></div>
-   <div class="card tap" style="margin:0" onclick="openMetric('via')"><div class="mut">Viajes</div><div style="font-size:24px;font-weight:800">${c.viajes}</div><div class="mut">${c.viajes?fmt(c.bruto/c.viajes)+' promedio':'—'}</div></div>
-   <div class="card tap" style="margin:0" onclick="openMetric('gan')"><div class="mut">Bruto</div><div style="font-size:24px;font-weight:800">${fmt(c.bruto)}</div><div class="mut">antes de descuentos</div></div>
-  </div>
+  <div class="card tap" onclick="openMetric('gan')"><div class="mut">Ganancia neta · lo que realmente te queda</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>${cmp}
+   <div class="mut" style="margin-top:6px">${c.viajes} viajes · bruto ${fmt(c.bruto)} · comisiones ${fmt(c.com)} · gastos ${fmt(c.gastos)}</div></div>
+  ${bloqueGraficas()}
   <div class="card"><b>¿Cuánto te queda en mano?</b>
    <div class="row"><span>💵 Efectivo en mano <span class="mut">(cobrado − gastos)</span></span><b class="${c.efecMano<0?'neg':''}">${fmt(c.efecMano)}</b></div>
    <div class="row"><span>📲 Digital a cobrar <span class="mut">(− comisiones)</span></span><b class="${c.digCobrar<0?'neg':''}">${fmt(c.digCobrar)}</b></div>
    <div class="row"><span><b>Total real</b></span><b class="${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</b></div>
    ${c.digCobrar<0?'<div class="mut" style="margin-top:6px">Las comisiones superan lo cobrado en digital: la plataforma te lo descuenta del efectivo o del próximo pago.</div>':''}</div>
-  <div class="card"><b>¿A dónde se va la plata?</b><div style="display:flex;gap:16px;align-items:center;margin-top:10px">${donut(c)}
+  <div class="card"><b>¿A dónde se va la plata?</b><div class="mut" style="margin-top:2px">${per==='hoy'?'Hoy':per==='sem'?'Últimos 7 días':'Este mes'}</div><div style="display:flex;gap:16px;align-items:center;margin-top:10px">${donut(c)}
    <div class="leg"><div><span class="dot" style="background:var(--amb)"></span>Comisiones ${fmt(c.com)}</div><div><span class="dot" style="background:var(--red)"></span>Gastos ${fmt(c.gastos)}</div><div><span class="dot" style="background:var(--ac)"></span>Te queda ${fmt(c.gan)}</div>
-   <div class="mut">Combustible ${fmt(c.comb)} · Varios ${fmt(c.varios)}</div></div></div></div>
-  <div class="card"><b>Del bruto a tu bolsillo</b><div style="margin-top:8px"><div class="mut">Cobrado ${fmt(c.bruto)}</div><div class="wf"><div style="width:${w(c.bruto)}%;background:var(--tx)"></div></div>
-  <div class="mut">Comisiones −${fmt(c.com)}</div><div class="wf"><div style="width:${w(c.com)}%;background:var(--amb)"></div></div>
-  <div class="mut">Gastos −${fmt(c.gastos)}</div><div class="wf"><div style="width:${w(c.gastos)}%;background:var(--red)"></div></div>
-  <div class="mut">Ganancia ${fmt(c.gan)}</div><div class="wf"><div style="width:${w(c.gan)}%;background:var(--ac)"></div></div></div></div>`;}
+   <div class="mut">Combustible ${fmt(c.comb)} · Varios ${fmt(c.varios)}</div></div></div></div>`;}
 
 function setHf(f){hf=f;render();}
 function vHist(){const lst=S.r.filter(r=>hf==='todo'||r.t===hf).sort((a,b)=>b.ts-a.ts).slice(0,300);
@@ -348,7 +417,7 @@ function exportCSV(){const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
     if(r.t==='v')rows.push([f,'viaje','',r.plat,r.pago,r.monto,r.comMonto||0,r.monto-(r.comMonto||0),'','']);
     else if(r.t==='g')rows.push([f,r.sub,r.cat+(r.nota?' '+r.nota:''),'','',r.monto,'','','','']);
     else rows.push([f,'jornada','','','','','','',r.kmIni,r.kmFin==null?'':r.kmFin]);});
-  download('manejar-'+new Date().toISOString().slice(0,10)+'.csv','\ufeff'+rows.map(r=>r.map(q).join(',')).join('\n'),'text/csv');}
+  download('manejar-'+new Date().toISOString().slice(0,10)+'.csv','﻿'+rows.map(r=>r.map(q).join(',')).join('\n'),'text/csv');}
 function backup(){download('manejar-backup-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(S),'application/json');}
 function copiar(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Copiado')).catch(()=>toast('No se pudo copiar'));}
 
