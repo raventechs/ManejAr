@@ -1,13 +1,17 @@
 <!DOCTYPE html>
 <!--
-  manejAr v1.1.0 — 2026-10-24
+  manejAr v1.2.0 — 2026-10-24
   Control de ganancias real para choferes de Uber / Didi / Cabify.
   Stack: single-file HTML + Firebase compat (opcional) + GitHub Pages. Service worker: sw-manejar.js (raíz del repo).
 
+  REGLA DE NEGOCIO (v1.2.0): los GASTOS (combustible, peajes, etc.) NO entran en ninguna gráfica ni métrica de rendimiento
+  ($/hora, $/km, mejor día, mejor horario, jornada de hoy). Esas métricas usan el "ingreso del trabajo" = cobrado − comisión de la plataforma.
+  Los gastos se restan únicamente en "lo que te queda", "efectivo en mano" y en el reparto de la plata.
+
   CHANGELOG
-  - 1.1.0: Resultados centrado en gráficas: "Tu jornada de hoy" (ganancia hora por hora + ritmo $/h y $/km vs promedio 7 días),
-           $/hora y $/km de los últimos 7 días con línea de promedio, resumen de mejores (día / horario), gráfica de ganancia
-           por horario del día y por día de la semana. Gráficas rehechas con ejes y alturas consistentes.
+  - 1.2.0: gastos fuera del rendimiento. $/h y $/km sobre ingreso del trabajo (sin gastos). "Lo que te queda" separado y explicado.
+  - 1.1.0: Resultados centrado en gráficas: jornada de hoy hora por hora + ritmo vs promedio 7 días, $/h y $/km 7 días con promedio,
+           mejores día/horario, gráfica por horario y por día de la semana.
   - 1.0.0: carga de viajes en 2 toques, combustible/gastos, jornada con km, comparativa vs ayer, plan Flota (dueño ve choferes en vivo),
            PIN admin oculto (5 toques), modo claro/oscuro, export CSV y backup JSON.
 
@@ -107,7 +111,7 @@ h4{margin:0;font-size:16px}
 <script>
 'use strict';
 /* ====== CONFIG ====== */
-const VER='1.1.0', KEY='manejar_v1', ADMIN_PIN='2580', DAY=864e5;
+const VER='1.2.0', KEY='manejar_v1', ADMIN_PIN='2580', DAY=864e5;
 const FB={apiKey:'REEMPLAZAR',authDomain:'REEMPLAZAR.firebaseapp.com',projectId:'REEMPLAZAR',appId:'REEMPLAZAR'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined';
 const PLATS=['Uber','Didi','Cabify','Otro'];
@@ -139,7 +143,10 @@ function rango(p){const n=Date.now(),s=sod(n);if(p==='hoy')return[s,s+DAY];if(p=
 function save(){S.upd=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){toast('No se pudo guardar en el teléfono');}}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),2400);}
 
-/* ====== CÁLCULOS ====== */
+/* ====== CÁLCULOS ======
+   neto = cobrado − comisión de la plataforma  ("ingreso del trabajo")
+   gan  = neto − gastos                        ("lo que te queda")  ← NO se usa en gráficas de rendimiento
+   ph / pk / series / mejores día y horario → siempre sobre neto */
 function calc(rs,a,b){
   const o={bruto:0,com:0,efec:0,dig:0,comb:0,varios:0,viajes:0,horas:0,km:0,abierta:false,ultimo:0};
   for(const r of rs){
@@ -151,13 +158,13 @@ function calc(rs,a,b){
   }
   o.gastos=o.comb+o.varios;o.neto=o.bruto-o.com;o.gan=o.neto-o.gastos;
   o.efecMano=o.efec-o.gastos;o.digCobrar=o.dig-o.com;
-  o.ph=o.horas>0.05?o.gan/o.horas:0;o.pk=o.km>0?o.gan/o.km:0;
+  o.ph=o.horas>0.05?o.neto/o.horas:0;o.pk=o.km>0?o.neto/o.km:0;
   return o;
 }
 const MET={
-  gan:{n:'Ganancia neta',f:c=>c.gan,fm:fmt,ok:c=>c.viajes>0},
-  hora:{n:'Ganancia por hora',f:c=>c.ph,fm:v=>fmt(v)+'/h',ok:c=>c.horas>0.05&&c.viajes>0},
-  km:{n:'Ganancia por km',f:c=>c.pk,fm:v=>fmt(v)+'/km',ok:c=>c.km>0&&c.viajes>0},
+  gan:{n:'Ingreso del trabajo',f:c=>c.neto,fm:fmt,ok:c=>c.viajes>0},
+  hora:{n:'Ingreso por hora',f:c=>c.ph,fm:v=>fmt(v)+'/h',ok:c=>c.horas>0.05&&c.viajes>0},
+  km:{n:'Ingreso por km',f:c=>c.pk,fm:v=>fmt(v)+'/km',ok:c=>c.km>0&&c.viajes>0},
   via:{n:'Viajes',f:c=>c.viajes,fm:v=>String(Math.round(v)),ok:c=>c.viajes>0}
 };
 function serie(k,dias){const s=sod(Date.now()),out=[];for(let i=dias-1;i>=0;i--){const a=s-i*DAY,c=calc(S.r,a,a+DAY);out.push({l:DIAS[new Date(a).getDay()],v:MET[k].ok(c)?MET[k].f(c):0,hi:i===0,ok:MET[k].ok(c),a});}return out;}
@@ -165,14 +172,14 @@ function promSerie(ser){const o=ser.filter(x=>x.ok);return o.length?o.reduce((s,
 function porDiaSemana(k){const s=sod(Date.now()),sum=Array(7).fill(0),n=Array(7).fill(0);
   for(let i=0;i<56;i++){const a=s-i*DAY,c=calc(S.r,a,a+DAY);if(MET[k].ok(c)){const d=new Date(a).getDay();sum[d]+=MET[k].f(c);n[d]++;}}
   return DIAS.map((l,d)=>({l,v:n[d]?sum[d]/n[d]:0,n:n[d]}));}
-/* ingreso neto (después de comisiones) por hora del reloj, sobre las horas realmente trabajadas, últimos 60 días */
+/* ingreso neto (después de comisiones, SIN gastos) por hora del reloj, sobre las horas realmente trabajadas, últimos 60 días */
 function horarios(){const from=Date.now()-60*DAY,inc=Array(24).fill(0),wk=Array(24).fill(0);
   for(const r of S.r){if(r.ts<from)continue;
     if(r.t==='v')inc[new Date(r.ts).getHours()]+=r.monto-(r.comMonto||0);
     else if(r.t==='j'){let t=r.inicio;const f=r.fin||Date.now();while(t<f){const d=new Date(t),nx=new Date(t);nx.setMinutes(0,0,0);nx.setHours(d.getHours()+1);const e=Math.min(nx.getTime(),f);wk[d.getHours()]+=(e-t)/36e5;t=e;}}}
   return inc.map((v,h)=>({h,ph:wk[h]>=1?v/wk[h]:null,hrs:wk[h]}));}
 function franjas(){return horarios().filter(x=>x.ph!==null).sort((a,b)=>b.ph-a.ph);}
-/* ingreso neto por hora de HOY (para la gráfica de la jornada) */
+/* ingreso neto por hora de HOY (gráfica de la jornada) */
 function horasHoy(){const s=sod(Date.now()),inc={};let min=24,max=-1;
   for(const r of S.r){if(r.ts<s||r.ts>=s+DAY)continue;
     if(r.t==='v'){const h=new Date(r.ts).getHours();inc[h]=(inc[h]||0)+r.monto-(r.comMonto||0);min=Math.min(min,h);max=Math.max(max,h);}
@@ -277,13 +284,14 @@ function openMetric(k){
   if(best)extra+=`<div class="row"><span>🏆 Mejor día de la semana</span><b>${DIAS_L[DIAS.indexOf(best.l)]} · ${M.fm(best.v)}</b></div>`;
   if(okSer)extra+=`<div class="row"><span>⭐ Mejor día de estos 7</span><b>${DIAS_L[new Date(okSer.a).getDay()]} · ${M.fm(okSer.v)}</b></div>`;
   let fr='';
-  if(k==='hora'){const f=franjas();if(f.length){fr=`<div class="card" style="margin-top:12px"><b>Mejores franjas horarias</b><div class="mut" style="margin-bottom:6px">Ingreso por hora trabajada (después de comisiones), últimos 60 días</div>`+
+  if(k==='hora'){const f=franjas();if(f.length){fr=`<div class="card" style="margin-top:12px"><b>Mejores franjas horarias</b><div class="mut" style="margin-bottom:6px">Ingreso por hora trabajada (después de comisiones, sin gastos), últimos 60 días</div>`+
     f.slice(0,3).map((x,i)=>`<div class="row"><span>${['🥇','🥈','🥉'][i]} ${x.h}–${(x.h+1)%24} hs</span><b>${fmt(x.ph)}/h</b></div>`).join('')+
     (f.length>3?`<div class="row"><span class="mut">Peor franja: ${f[f.length-1].h}–${(f[f.length-1].h+1)%24} hs</span><span class="mut">${fmt(f[f.length-1].ph)}/h</span></div>`:'')+'</div>';}
     else fr='<p class="mut">Necesitás algunas jornadas con viajes para ver las mejores franjas.</p>';}
   if(k==='km'){const w=[...ser].filter(x=>x.ok).sort((a,b)=>a.v-b.v)[0];if(w&&okSer&&w!==okSer)extra+=`<div class="row"><span>📉 Día más flojo (7 días)</span><b>${DIAS_L[new Date(w.a).getDay()]} · ${M.fm(w.v)}</b></div>`;}
   const f1=v=>k==='via'?String(Math.round(v)):fmtK(v);
-  sheet(`<h3>${M.n}</h3><div class="big ${vh<0?'neg':''}">${M.fm(vh)}</div><div class="mut">hoy (en curso)</div><div style="margin-top:4px">${cmp}</div>
+  const nota=k==='via'?'':'<div class="cap" style="margin-top:8px">Después de comisiones de la plataforma. Los gastos (combustible, peajes) no se descuentan acá: se ven en “Lo que te queda”.</div>';
+  sheet(`<h3>${M.n}</h3><div class="big ${vh<0?'neg':''}">${M.fm(vh)}</div><div class="mut">hoy (en curso)</div><div style="margin-top:4px">${cmp}</div>${nota}
   <div class="card" style="margin-top:12px"><b>Últimos 7 días</b>${bars(ser,f1,{avg:promSerie(ser)})}</div>
   <div class="card"><b>Promedio por día de la semana</b><div class="mut">Últimas 8 semanas</div>${bars(dw.map(x=>({l:x.l,v:x.v,hi:!!best&&x.l===best.l})),k==='via'?(v=>v.toFixed(0)):fmtK)}</div>
   ${extra?`<div class="card">${extra}</div>`:''}${fr}<button class="btn sec" onclick="closeSheet()">Cerrar</button>`);
@@ -294,13 +302,13 @@ function vInicio(){const [a,b]=rango('hoy'),c=calc(S.r,a,b),jo=jornadaAbierta();
   return `<div class="card jc">${jo?`<div><b>🟢 En jornada</b><div class="mut">desde ${hhmm(jo.inicio)} · ${jo.kmIni} km · ${horasStr(Date.now()-jo.inicio)}</div></div><button class="btn sm red" onclick="openJornada()">Cerrar</button>`:`<div><b>Jornada sin iniciar</b><div class="mut">Cargá los km con los que arrancás</div></div><button class="btn sm" onclick="openJornada()">Iniciar</button>`}</div>
   <button class="btn xl" onclick="openViaje()">+ VIAJE</button>
   <div class="grid2"><button class="btn lg amb" onclick="openGasto('Combustible')">⛽ Combustible</button><button class="btn lg sec" onclick="openGasto('Gasto')">🧾 Otro gasto</button></div>
-  <div class="card tap" onclick="go('res')"><div class="mut">Ganancia neta de hoy · tocá para ver las gráficas</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>
-  <div class="mut" style="margin-top:6px">${c.viajes} viajes · bruto ${fmt(c.bruto)} · gastos ${fmt(c.gastos)}${c.horas>0.05?' · '+fmt(c.ph)+'/h':''}</div></div>`;}
+  <div class="card tap" onclick="go('res')"><div class="mut">Hoy te queda (después de gastos) · tocá para ver las gráficas</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>
+  <div class="mut" style="margin-top:6px">${c.viajes} viajes · ingreso ${fmt(c.neto)} · gastos ${fmt(c.gastos)}${c.horas>0.05&&c.viajes?' · '+fmt(c.ph)+'/h':''}</div></div>`;}
 
 function periodChips(cur,fn){return `<div class="chips">`+[['hoy','Hoy'],['sem','7 días'],['mes','Este mes']].map(([k,l])=>`<button class="chip ${cur===k?'on':''}" onclick="${fn}('${k}')">${l}</button>`).join('')+'</div>';}
 function setPer(p){per=p;render();}
 
-/* bloque de gráficas de Resultados */
+/* bloque de gráficas de Resultados (todas sobre ingreso del trabajo, sin gastos) */
 function bloqueGraficas(){
   const s=sod(Date.now()),hoy=calc(S.r,s,s+DAY),rh=ritmo('hora'),rk=ritmo('km'),hh=horasHoy(),jo=jornadaAbierta();
   const kmNota=(!rk.ok&&jo&&hoy.km===0)?'<div class="mut" style="margin-top:2px">se calcula al cerrar la jornada</div>':'';
@@ -308,23 +316,23 @@ function bloqueGraficas(){
   let c1=`<div class="card"><div class="jc"><h4>Tu jornada de hoy</h4><span class="mut">${hoy.horas>0.05?hoy.horas.toFixed(1)+' h':''}</span></div>
     <div class="kpis"><div class="kpi"><span class="mut">Por hora</span><b>${rh.ok?fmt(rh.v)+'/h':'—'}</b>${delta(rh,v=>fmt(v)+'/h')}</div>
     <div class="kpi"><span class="mut">Por km</span><b>${rk.ok?fmt(rk.v)+'/km':'—'}</b>${rk.ok?delta(rk,v=>fmt(v)+'/km'):'<span class="mut">sin km todavía</span>'+kmNota}</div></div>`;
-  c1+=hh.length?`<div style="margin-top:14px" class="mut">Ingreso neto por hora del día (después de comisiones)</div>${bars(hh,fmtK)}<div class="cap">Cada barra es una hora de reloj. La verde es tu mejor hora de hoy.</div>`
+  c1+=hh.length?`<div style="margin-top:14px" class="mut">Ingreso por hora del día (después de comisiones)</div>${bars(hh,fmtK)}<div class="cap">Cada barra es una hora de reloj. La verde es tu mejor hora de hoy. Los gastos no se cuentan acá.</div>`
     :`<div class="cap" style="margin-top:12px">Iniciá la jornada y cargá viajes: acá vas a ver cómo viene tu día hora por hora.</div>`;
   c1+='</div>';
   /* 2) $/hora 7 días */
   const sH=serie('hora',7),sK=serie('km',7),aH=promSerie(sH),aK=promSerie(sK);
-  const c2=`<div class="card tap" onclick="openMetric('hora')"><div class="jc"><h4>Ganancia por hora</h4><span class="mut">7 días ›</span></div>
-    ${sH.some(x=>x.ok)?bars(sH,fmtK,{avg:aH}):'<div class="cap">Se arma con tus jornadas cerradas y tus viajes.</div>'}<div class="cap">Ganancia real (con comisiones y gastos) dividida por las horas de jornada. Tocá para comparar con ayer.</div></div>`;
+  const c2=`<div class="card tap" onclick="openMetric('hora')"><div class="jc"><h4>Ingreso por hora</h4><span class="mut">7 días ›</span></div>
+    ${sH.some(x=>x.ok)?bars(sH,fmtK,{avg:aH}):'<div class="cap">Se arma con tus jornadas y tus viajes.</div>'}<div class="cap">Lo cobrado menos la comisión de la plataforma, dividido por las horas de jornada. No incluye gastos. Tocá para comparar con ayer.</div></div>`;
   /* 3) $/km 7 días */
-  const c3=`<div class="card tap" onclick="openMetric('km')"><div class="jc"><h4>Ganancia por km</h4><span class="mut">7 días ›</span></div>
-    ${sK.some(x=>x.ok)?bars(sK,v=>fmt(v),{avg:aK}):'<div class="cap">Se arma al cerrar cada jornada con los km del auto.</div>'}<div class="cap">Lo que te queda limpio por cada km recorrido.</div></div>`;
+  const c3=`<div class="card tap" onclick="openMetric('km')"><div class="jc"><h4>Ingreso por km</h4><span class="mut">7 días ›</span></div>
+    ${sK.some(x=>x.ok)?bars(sK,v=>fmt(v),{avg:aK}):'<div class="cap">Se arma al cerrar cada jornada con los km del auto.</div>'}<div class="cap">Lo que te paga el trabajo por cada km recorrido, sin contar gastos.</div></div>`;
   /* 4) mejores */
   const dG=porDiaSemana('gan'),dH=porDiaSemana('hora'),dK=porDiaSemana('km');
   const top=a=>a.filter(x=>x.n>0).sort((x,y)=>y.v-x.v)[0];
   const bG=top(dG),bH=top(dH),bK=top(dK),fr=franjas();
   const dia=x=>x?DIAS_L[DIAS.indexOf(x.l)]:'—';
   const c4=`<div class="card"><h4>Tus mejores momentos</h4><div class="best" style="margin-top:12px">
-    <div class="bt"><div class="t">🏆 Mejor día (ganancia)</div><b>${dia(bG)}</b><div class="s">${bG?fmt(bG.v)+' por día':'faltan datos'}</div></div>
+    <div class="bt"><div class="t">🏆 Mejor día (ingreso)</div><b>${dia(bG)}</b><div class="s">${bG?fmt(bG.v)+' por día':'faltan datos'}</div></div>
     <div class="bt"><div class="t">⏱️ Mejor día por hora</div><b>${dia(bH)}</b><div class="s">${bH?fmt(bH.v)+'/h':'faltan datos'}</div></div>
     <div class="bt"><div class="t">📏 Mejor día por km</div><b>${dia(bK)}</b><div class="s">${bK?fmt(bK.v)+'/km':'faltan datos'}</div></div>
     <div class="bt"><div class="t">🕒 Mejor horario</div><b style="text-transform:none">${fr.length?fr[0].h+' a '+((fr[0].h+1)%24)+' hs':'—'}</b><div class="s">${fr.length?fmt(fr[0].ph)+'/h':'faltan datos'}</div></div></div></div>`;
@@ -333,20 +341,21 @@ function bloqueGraficas(){
   if(con.length>=2){const mn=Math.min(...con.map(x=>x.h)),mx=Math.max(...con.map(x=>x.h)),bestH=fr[0].h,items=[];
     for(let h=mn;h<=mx;h++){const x=H[h];items.push({l:(mx-mn>11&&(h-mn)%2)?'':String(h),v:x.ph||0,hi:h===bestH});}
     const peor=fr[fr.length-1];
-    c5=`<div class="card"><h4>¿En qué horario te va mejor?</h4><div class="mut" style="margin-top:2px">Ingreso por hora trabajada, según la hora del día (últimos 60 días)</div>${bars(items,fmtK)}
+    c5=`<div class="card"><h4>¿En qué horario te va mejor?</h4><div class="mut" style="margin-top:2px">Ingreso por hora trabajada, según la hora del día (últimos 60 días, sin gastos)</div>${bars(items,fmtK)}
     <div class="cap">🥇 ${bestH}–${(bestH+1)%24} hs es tu mejor horario (${fmt(fr[0].ph)}/h)${fr.length>1?` · el más flojo es ${peor.h}–${(peor.h+1)%24} hs (${fmt(peor.ph)}/h)`:''}.</div></div>`;}
   else c5=`<div class="card"><h4>¿En qué horario te va mejor?</h4><div class="cap" style="margin-top:8px">Con unas jornadas cargadas vas a ver en qué horarios del día rendís mejor.</div></div>`;
   /* 6) por día de la semana */
   const hiD=bG?bG.l:null;
-  const c6=bG?`<div class="card"><h4>Ganancia por día de la semana</h4><div class="mut" style="margin-top:2px">Promedio de las últimas 8 semanas</div>${bars(dG.map(x=>({l:x.l,v:x.v,hi:x.l===hiD})),fmtK)}
+  const c6=bG?`<div class="card"><h4>Ingreso por día de la semana</h4><div class="mut" style="margin-top:2px">Promedio de las últimas 8 semanas, sin gastos</div>${bars(dG.map(x=>({l:x.l,v:x.v,hi:x.l===hiD})),fmtK)}
     <div class="cap">Los ${dia(bG)} son tu mejor día: ${fmt(bG.v)} en promedio.</div></div>`:'';
   return c1+c2+c3+c4+c5+c6;}
 
 function vRes(){const [a,b]=rango(per),c=calc(S.r,a,b),s=sod(Date.now()),ay=calc(S.r,s-DAY,s);
-  let cmp='';if(per==='hoy'&&ay.viajes>0&&ay.gan>0&&c.viajes>0){const d=(c.gan-ay.gan)/ay.gan*100;cmp=`<div style="margin-top:4px"><b class="${d>=0?'pos':'neg'}">${d>=0?'▲':'▼'} ${Math.abs(d).toFixed(0)}%</b> <span class="mut">vs ayer (${fmt(ay.gan)})</span></div>`;}
+  let cmp='';if(per==='hoy'&&ay.viajes>0&&ay.neto>0&&c.viajes>0){const d=(c.neto-ay.neto)/ay.neto*100;cmp=`<div style="margin-top:6px"><b class="${d>=0?'pos':'neg'}">${d>=0?'▲':'▼'} ${Math.abs(d).toFixed(0)}%</b> <span class="mut">ingreso del trabajo vs ayer (${fmt(ay.neto)})</span></div>`;}
   return periodChips(per,'setPer')+`
-  <div class="card tap" onclick="openMetric('gan')"><div class="mut">Ganancia neta · lo que realmente te queda</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>${cmp}
-   <div class="mut" style="margin-top:6px">${c.viajes} viajes · bruto ${fmt(c.bruto)} · comisiones ${fmt(c.com)} · gastos ${fmt(c.gastos)}</div></div>
+  <div class="card tap" onclick="openMetric('gan')"><div class="mut">Lo que te queda · después de gastos</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>
+   <div class="mut" style="margin-top:6px">Ingreso del trabajo ${fmt(c.neto)} <span style="opacity:.8">(cobrado ${fmt(c.bruto)} − comisiones ${fmt(c.com)})</span> − gastos ${fmt(c.gastos)}</div>${cmp}
+   <div class="cap">Las gráficas de rendimiento usan solo el ingreso del trabajo: así un día de nafta no te tapa lo bien que trabajaste. Tocá para verlo día por día ›</div></div>
   ${bloqueGraficas()}
   <div class="card"><b>¿Cuánto te queda en mano?</b>
    <div class="row"><span>💵 Efectivo en mano <span class="mut">(cobrado − gastos)</span></span><b class="${c.efecMano<0?'neg':''}">${fmt(c.efecMano)}</b></div>
@@ -374,11 +383,11 @@ function vFlota(){
   const [a,b]=rango(fper),ids=Object.keys(FM.choferes||{}),by={};
   FD.forEach(r=>{(by[r.choferUid]=by[r.choferUid]||[]).push(r);});
   const rows=ids.map(id=>({id,i:FM.choferes[id],c:calc(by[id]||[],a,b)})).sort((x,y)=>y.c.gan-x.c.gan);
-  const T=rows.reduce((o,x)=>{o.gan+=x.c.gan;o.bruto+=x.c.bruto;o.gastos+=x.c.gastos;o.viajes+=x.c.viajes;return o;},{gan:0,bruto:0,gastos:0,viajes:0});
-  return periodChips(fper,'setFper')+`<div class="card"><div class="mut">Flota · ganancia neta total <span class="tag">en vivo</span></div><div class="big ${T.gan<0?'neg':'pos'}">${fmt(T.gan)}</div>
-  <div class="mut" style="margin-top:6px">${T.viajes} viajes · bruto ${fmt(T.bruto)} · gastos ${fmt(T.gastos)}</div></div>`+
+  const T=rows.reduce((o,x)=>{o.gan+=x.c.gan;o.neto+=x.c.neto;o.bruto+=x.c.bruto;o.gastos+=x.c.gastos;o.viajes+=x.c.viajes;return o;},{gan:0,neto:0,bruto:0,gastos:0,viajes:0});
+  return periodChips(fper,'setFper')+`<div class="card"><div class="mut">Flota · lo que queda después de gastos <span class="tag">en vivo</span></div><div class="big ${T.gan<0?'neg':'pos'}">${fmt(T.gan)}</div>
+  <div class="mut" style="margin-top:6px">${T.viajes} viajes · cobrado ${fmt(T.bruto)} · ingreso del trabajo ${fmt(T.neto)} · gastos ${fmt(T.gastos)}</div></div>`+
   (rows.length?rows.map((x,idx)=>`<div class="card"><div class="jc"><div><b>${idx===0&&x.c.gan>0?'🏆 ':''}${esc(x.i.nombre||'Chofer')}</b><div class="mut">${esc(x.i.vehiculo||'sin vehículo')}</div></div><div style="text-align:right"><div style="font-size:22px;font-weight:800" class="${x.c.gan<0?'neg':'pos'}">${fmt(x.c.gan)}</div><div class="mut">${x.c.abierta?'<span class="on-dot">●</span> En jornada':'○ Sin jornada'}</div></div></div>
-  <div class="mut" style="margin-top:8px">${x.c.viajes} viajes · bruto ${fmt(x.c.bruto)} · gastos ${fmt(x.c.gastos)}<br>${x.c.ph?fmt(x.c.ph)+'/h':'—/h'} · ${x.c.pk?fmt(x.c.pk)+'/km':'—/km'} · último viaje ${ago(x.c.ultimo)}</div></div>`).join(''):'<div class="card"><p class="mut">Todavía no se unió ningún chofer. Compartí el código desde Ajustes.</p></div>');}
+  <div class="mut" style="margin-top:8px">${x.c.viajes} viajes · ingreso ${fmt(x.c.neto)} · gastos ${fmt(x.c.gastos)}<br>${x.c.ph?fmt(x.c.ph)+'/h':'—/h'} · ${x.c.pk?fmt(x.c.pk)+'/km':'—/km'} · último viaje ${ago(x.c.ultimo)}</div></div>`).join(''):'<div class="card"><p class="mut">Todavía no se unió ningún chofer. Compartí el código desde Ajustes.</p></div>');}
 
 function vCfg(){const f=S.flota,lim=FM.limiteChoferes||2,n=Object.keys(FM.choferes||{}).length;
   const msg=`Sumate a mi flota en manejAr con este código: ${f.id}  ${location.href.split('#')[0]}`;
