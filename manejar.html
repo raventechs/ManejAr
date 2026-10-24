@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <!--
-  manejAr v2.0.1 — 2026-10-24
+  manejAr v2.0.2 — 2026-10-24
   Control de ganancias real para choferes de Uber / Didi / Cabify.
   Stack: single-file HTML + Firebase compat + GitHub Pages. Service worker: sw-manejar.js (raíz del repo). Sin Netlify.
 
-  v2.0.1: configuración Firebase real (proyecto manejar-dfdd4). PENDIENTE: número de WhatsApp (const WHATSAPP).
+  v2.0.2: WhatsApp de contacto cargado (5491136547592).
+  v2.0.1: configuración Firebase real (proyecto manejar-dfdd4).
 
   CUENTAS Y VENTA (v2.0.0)
   - Login email + contraseña (Firebase Auth). Al registrarse: demo gratis de 14 días. Al vencer: pantalla de bloqueo.
@@ -143,10 +144,10 @@ h4{margin:0;font-size:16px}
 <script>
 'use strict';
 /* ====== CONFIG ====== */
-const VER='2.0.1', KEY='manejar_v1', ADMIN_PIN='2580', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
+const VER='2.0.2', KEY='manejar_v1', ADMIN_PIN='2580', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
 const FB={apiKey:'AIzaSyBaoM5gbWV5DrRQ7tIUyEPE5oyR6H8hnBw',authDomain:'manejar-dfdd4.firebaseapp.com',projectId:'manejar-dfdd4',storageBucket:'manejar-dfdd4.firebasestorage.app',messagingSenderId:'409587508261',appId:'1:409587508261:web:15e0e6f6f28f18dfd90bcc'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined';
-const WHATSAPP='REEMPLAZAR'; /* número con código de país, ej 5491122334455 */
+const WHATSAPP='5491136547592'; /* número con código de país, ej 5491122334455 */
 const PLATS=['Uber','Didi','Cabify','Otro'];
 const CAT_COMB=['Nafta','GNC','Diésel'];
 const CAT_VAR=['Peaje','Lavado','Mantenimiento','Comida','Otro'];
