@@ -1,5 +1,5 @@
 /* sw-manejar.js — manejAr v2.0.0 — cache básico para uso offline */
-const C='manejar-v2.2.0';
+const C='manejar-v2.3.0';
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(C).then(c=>c.addAll(['./','manejar.html'].filter(Boolean))).catch(()=>{}));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',e=>{

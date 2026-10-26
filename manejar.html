@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
-  manejAr v2.2.0 — 2026-10-24
+  manejAr v2.3.0 — 2026-10-26
   Control de ganancias real para choferes de Uber / Didi / Cabify.
   Stack: single-file HTML + Firebase compat + GitHub Pages. Service worker: sw-manejar.js (raíz del repo). Sin Netlify.
 
+  v2.3.0: BACKUP completo: automático una vez por día al abrir (descarga el archivo y deja copia local de los últimos 7 días) + manual + RESTAURAR (junta con lo que ya hay). El archivo ya no lleva el estado de la cuenta (plan/vencimiento).
   v2.2.0: modo demostración (?demo=1): 4 semanas de datos de ejemplo para capturas/ventas, sin cuenta ni nube, clave local aparte.
   v2.1.0: ingreso con Google (popup; redirect si el navegador bloquea popups) además de email+contraseña. Nombre tomado de la cuenta Google. Requiere activar proveedor Google en Firebase Auth.
   v2.0.2: WhatsApp de contacto cargado (5491136547592).
@@ -148,7 +149,7 @@ h4{margin:0;font-size:16px}
 'use strict';
 /* ====== CONFIG ====== */
 const DEMO=/[?&]demo=1/.test(location.search);
-const VER='2.2.0', KEY=DEMO?'manejar_demo':'manejar_v1', ADMIN_PIN='2580', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
+const VER='2.3.0', KEY=DEMO?'manejar_demo':'manejar_v1', ADMIN_PIN='2580', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
 const FB={apiKey:'AIzaSyBaoM5gbWV5DrRQ7tIUyEPE5oyR6H8hnBw',authDomain:'manejar-dfdd4.firebaseapp.com',projectId:'manejar-dfdd4',storageBucket:'manejar-dfdd4.firebasestorage.app',messagingSenderId:'409587508261',appId:'1:409587508261:web:15e0e6f6f28f18dfd90bcc'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined' && !DEMO;
 const WHATSAPP='5491136547592'; /* número con código de país, ej 5491122334455 */
@@ -583,7 +584,7 @@ function vCfg(){const f=S.flota,lim=FM.limiteChoferes||2,n=Object.keys(FM.chofer
   <div class="card"><b>Comisión de cada plataforma (%)</b><div class="mut">Valores de arranque; ajustalos según tu caso real.</div><div class="grid2" style="margin-top:8px">${PLATS.map(p=>`<div><label for="c_${p}">${p}</label><input id="c_${p}" type="number" inputmode="decimal" value="${S.cfg.com[p]}"></div>`).join('')}</div></div>
   <button class="btn" onclick="saveCfg()">Guardar ajustes</button>
   <div class="card"><b>Flota</b><div style="margin-top:8px">${fl}</div></div>
-  <div class="card"><b>Mis datos</b><div class="grid2" style="margin-top:10px"><button class="btn sm sec" style="padding:14px" onclick="exportCSV()">Exportar CSV</button><button class="btn sm sec" style="padding:14px" onclick="backup()">Backup JSON</button></div></div>
+  <div class="card"><b>Mis datos</b><div class="grid2" style="margin-top:10px"><button class="btn sm sec" style="padding:14px" onclick="exportCSV()">Exportar CSV</button><button class="btn sm sec" style="padding:14px" onclick="backup()">Backup JSON</button><button class="btn sm sec" style="padding:14px" onclick="pedirRestaurar()">Restaurar backup</button></div><div class="mut" style="margin-top:8px">Se baja solo una vez por día al abrir la app. Último backup: <span id="ultimoBackupFecha">${_bkUltimo()}</span></div></div>
   <p class="mut" style="text-align:center">manejAr v${VER}</p>`;}
 
 /* ====== PANEL INTERNO (volante + PIN) ====== */
@@ -680,8 +681,70 @@ function exportCSV(){const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
     else if(r.t==='g')rows.push([f,r.sub,r.cat+(r.nota?' '+r.nota:''),'','',r.monto,'','','','']);
     else rows.push([f,'jornada','','','','','','',r.kmIni,r.kmFin==null?'':r.kmFin]);});
   download('manejar-'+new Date().toISOString().slice(0,10)+'.csv','﻿'+rows.map(r=>r.map(q).join(',')).join('\n'),'text/csv');}
-function backup(){download('manejar-backup-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(S),'application/json');}
 function copiar(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Copiado')).catch(()=>toast('No se pudo copiar'));}
+
+/* ====== BACKUP v2.3 ======
+   Automático: una vez por día al abrir la app (baja un JSON y deja copia en este teléfono, últimos 7 días).
+   Manual: "Backup JSON". Restaurar: "Restaurar backup" (junta los viajes/gastos/jornadas del archivo con los del teléfono; si un registro está en los dos, gana el del archivo).
+   El archivo lleva viajes, gastos, jornadas y ajustes; NO lleva el estado de la cuenta (plan, vencimiento, pagos), que lo maneja solo el administrador. */
+function _bkHoy() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function _bkIdb(fecha, json) {
+  return new Promise(function (res) {
+    try {
+      const rq = indexedDB.open('manejar-backup', 1);
+      rq.onupgradeneeded = function () { rq.result.createObjectStore('b', { keyPath: 'fecha' }); };
+      rq.onsuccess = function () {
+        const idb = rq.result, tx = idb.transaction('b', 'readwrite'), st = tx.objectStore('b');
+        st.put({ fecha: fecha, json: json });
+        st.getAllKeys().onsuccess = function (e) { const ks = e.target.result.sort(); while (ks.length > 7) st.delete(ks.shift()); };
+        tx.oncomplete = function () { idb.close(); res(true); };
+        tx.onerror = tx.onabort = function () { idb.close(); res(false); };
+      };
+      rq.onerror = function () { res(false); };
+    } catch (e) { res(false); }
+  });
+}
+function _bkJson(){return JSON.stringify({app:'manejAr',version:VER,fecha:new Date().toISOString(),uid:S.uid||(me&&me.uid)||null,r:S.r,cfg:S.cfg});}
+async function generarBackup(silencioso){
+  try{
+    if(!S.r.length){if(!silencioso)toast('Todavía no hay datos para respaldar');return;}
+    const fecha=_bkHoy(),json=_bkJson();
+    download('manejar-backup-'+fecha+'.json',json,'application/json');
+    await _bkIdb(fecha,json);
+    try{localStorage.setItem('manejar-ultimo-backup',fecha);}catch(e){}
+    const el=$('#ultimoBackupFecha');if(el)el.textContent=fecha;
+    if(!silencioso)toast('Backup descargado ✅');
+  }catch(e){console.warn('generarBackup',e);if(!silencioso)toast('Error al generar backup');}
+}
+function backup(){generarBackup(false);}
+function pedirRestaurar(){const i=document.createElement('input');i.type='file';i.accept='.json,application/json';i.style.display='none';i.addEventListener('change',async()=>{try{await restaurarBackup(i);}finally{i.remove();}});document.body.appendChild(i);i.click();}
+async function restaurarBackup(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  try{
+    const bk=JSON.parse(await file.text());
+    if(!bk||!Array.isArray(bk.r)||(bk.app&&bk.app!=='manejAr')){toast('El archivo no es un backup de manejAr');return;}
+    const ok=bk.r.filter(r=>r&&r.id&&typeof r.ts==='number'&&(r.t==='v'||r.t==='g'||r.t==='j'));
+    if(!ok.length){toast('El backup no tiene registros válidos');return;}
+    if(!confirm('Se van a cargar '+ok.length+' registro(s) del archivo (viajes, gastos y jornadas). Los que ya están en tu teléfono con el mismo código se reemplazan por los del archivo; los demás quedan como están. ¿Continuar?'))return;
+    const mapa={};S.r.forEach(r=>{mapa[r.id]=r;});ok.forEach(r=>{mapa[r.id]=r;});
+    S.r=Object.keys(mapa).map(k=>mapa[k]);
+    if(bk.cfg&&typeof bk.cfg==='object'){S.cfg=Object.assign({},S.cfg,bk.cfg);S.cfg.com=Object.assign({Uber:25,Didi:20,Cabify:20,Otro:0},bk.cfg.com||{});}
+    save();applyTema();syncNube();render();
+    toast('✅ Backup restaurado ('+ok.length+' registros)');
+  }catch(e){console.warn('restaurarBackup',e);toast('Error al restaurar: el archivo no se pudo leer');}
+  finally{input.value='';}
+}
+function chequearBackupDiario(){
+  if(DEMO||!S.r.length)return;
+  let ultimo=null;try{ultimo=localStorage.getItem('manejar-ultimo-backup');}catch(e){}
+  const el=$('#ultimoBackupFecha');if(el&&ultimo)el.textContent=ultimo;
+  if(ultimo!==_bkHoy())generarBackup(true);
+}
+function _bkUltimo(){try{return localStorage.getItem('manejar-ultimo-backup')||'—';}catch(e){return '—';}}
+/* ====== FIN BACKUP ====== */
 
 /* ====== NUBE: copia de datos + FLOTA ====== */
 async function syncNube(){
@@ -741,6 +804,7 @@ async function syncAll(){if(!db||!me||S.flota.rol!=='driver')return;
 
 /* ====== ARRANQUE ====== */
 applyTema();render();
+setTimeout(chequearBackupDiario,5000);   // v2.3: backup automático diario
 setTimeout(()=>{const s=$('#splash');s.style.opacity='0';setTimeout(()=>s.remove(),500);},1300);
 setInterval(()=>{
   if(FB_ON&&gate==='app'&&!acceso().ok){evaluarAcceso();return;}
