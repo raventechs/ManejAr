@@ -14,7 +14,7 @@
   - Login email + contraseña (Firebase Auth). Al registrarse: demo gratis de 14 días. Al vencer: pantalla de bloqueo.
   - Estados de cuenta en Firestore usuarios/{uid}: demo | activo | bloqueado + vence (ms). Lo cambia SOLO el administrador.
   - Cobro MANUAL: el administrador registra el pago (monto + días) desde el panel interno y la cuenta se extiende.
-  - Panel interno: tocar el volante (izquierda del logo) + PIN 2580. El permiso real lo da la cuenta administradora
+  - Panel interno: tocar el volante (izquierda del logo) + cuenta admin verificada. El permiso real lo da la cuenta administradora
     (rgaraventa@gmail.com con email verificado, validado en las reglas de Firestore), el PIN es solo la puerta visual.
   - Copia de los datos en la nube (usuarios/{uid}/registros) para no perderlos al cambiar de celular.
   - Si Firebase no está configurado (FB con 'REEMPLAZAR') la app corre en modo local, sin cuentas.
@@ -180,14 +180,19 @@ h4{margin:0;font-size:16px}
         r.onsuccess=function(){var db=r.result;try{
           if(!db.objectStoreNames.contains('firebaseLocalStorage')){db.close();return;}
           var q=db.transaction('firebaseLocalStorage','readonly').objectStore('firebaseLocalStorage').getAll();
-          q.onsuccess=function(){(q.result||[]).forEach(function(it){var u=it&&it.value;
-            if(u&&u.email&&!u.isAnonymous&&(u.providerData||[]).some(function(p){return p.providerId==='google.com';}))ls('rt_google_email',u.email);});db.close();};
+          q.onsuccess=function(){var adm=false;(q.result||[]).forEach(function(it){var u=it&&it.value;
+            if(u&&u.email&&!u.isAnonymous&&(u.providerData||[]).some(function(p){return p.providerId==='google.com';}))ls('rt_google_email',u.email);
+            if(u&&u.email&&String(u.email).toLowerCase()==='rgaraventa@gmail.com'&&u.emailVerified===true)adm=true;});
+            try{if(adm)localStorage.setItem('rt_admin','1');else localStorage.removeItem('rt_admin');}catch(e){}
+            db.close();};
         }catch(e){try{db.close();}catch(x){}}};
       }).catch(function(){});
     }catch(e){}
   }
-  capturar();var n=0,t=setInterval(function(){capturar();if(++n>20)clearInterval(t);},4000);
+  capturar();setInterval(capturar,8000);document.addEventListener('visibilitychange',capturar);
   window.addEventListener('focus',capturar);
+  /* Puerta del panel interno: solo la cuenta admin (la seguridad real la dan las reglas de Firestore) */
+  window.rtIsAdmin=function(){capturar();return ls('rt_admin')==='1';};
   window.rtHasHint=function(){return !!ls('rt_google_email');};
   window.rtProv=function(p){var e=ls('rt_google_email');try{if(e&&p&&p.setCustomParameters)p.setCustomParameters({login_hint:e});}catch(x){}return p;};
   /* A — Google primero */
@@ -253,7 +258,7 @@ h4{margin:0;font-size:16px}
 'use strict';
 /* ====== CONFIG ====== */
 const DEMO=/[?&]demo=1/.test(location.search);
-const VER='2.3.0', KEY=DEMO?'manejar_demo':'manejar_v1', ADMIN_PIN='2580', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
+const VER='2.3.0', KEY=DEMO?'manejar_demo':'manejar_v1', ADMIN_PIN='', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
 const FB={apiKey:'AIzaSyBaoM5gbWV5DrRQ7tIUyEPE5oyR6H8hnBw',authDomain:'manejar-dfdd4.firebaseapp.com',projectId:'manejar-dfdd4',storageBucket:'manejar-dfdd4.firebasestorage.app',messagingSenderId:'409587508261',appId:'1:409587508261:web:15e0e6f6f28f18dfd90bcc'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined' && !DEMO;
 const WHATSAPP='5491136547592'; /* número con código de país, ej 5491122334455 */
@@ -545,7 +550,7 @@ async function authGo(){
   abusy=false;}
 async function googleGo(){
   if(abusy||!auth)return;abusy=true;
-  try{const p=(window.rtProv||function(p){return p})(new firebase.auth.GoogleAuthProvider());if(!(window.rtHasHint&&window.rtHasHint()))if(!(window.rtHasHint&&window.rtHasHint()))p.setCustomParameters({prompt:'select_account'});
+  try{const p=(window.rtProv||function(p){return p})(new firebase.auth.GoogleAuthProvider());if(!(window.rtHasHint&&window.rtHasHint()))if(!(window.rtHasHint&&window.rtHasHint()))if(!(window.rtHasHint&&window.rtHasHint()))p.setCustomParameters({prompt:'select_account'});
     try{await auth.signInWithPopup(p);}
     catch(e){if(/popup-blocked|operation-not-supported|web-storage-unsupported/.test((e&&e.code)||'')){await auth.signInWithRedirect(p);return;}throw e;}
   }catch(e){toast(authMsg(e));}
@@ -698,7 +703,7 @@ function openAdminPin(){
   setTimeout(()=>{const e=$('#f_pin');if(e)e.focus();},120);}
 function adminOk(){
   const p=($('#f_pin').value||'');
-  if(p!==ADMIN_PIN){pinFails++;if(pinFails>=5){pinLock=Date.now()+60000;pinFails=0;closeSheet();return toast('Demasiados intentos. Esperá 1 minuto.');}return toast('PIN incorrecto');}
+  if(!(window.rtIsAdmin&&window.rtIsAdmin())){pinFails++;if(pinFails>=5){pinLock=Date.now()+60000;pinFails=0;closeSheet();return toast('Demasiados intentos. Esperá 1 minuto.');}return toast('PIN incorrecto');}
   pinFails=0;closeSheet();ADMIN_OK=true;
   if(!FB_ON){sheet(`<h3>Admin</h3><div class="card"><div class="row"><span>Versión</span><b>${VER}</b></div><div class="row"><span>Registros locales</span><b>${S.r.length}</b></div>
     <div class="row"><span>Firebase</span><b>no configurado</b></div></div><p class="mut">Con Firebase configurado acá vas a administrar las cuentas.</p>
