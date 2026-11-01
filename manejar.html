@@ -693,6 +693,7 @@ function vCfg(){const f=S.flota,lim=FM.limiteChoferes||2,n=Object.keys(FM.chofer
   <div class="card"><b>Comisión de cada plataforma (%)</b><div class="mut">Valores de arranque; ajustalos según tu caso real.</div><div class="grid2" style="margin-top:8px">${PLATS.map(p=>`<div><label for="c_${p}">${p}</label><input id="c_${p}" type="number" inputmode="decimal" value="${S.cfg.com[p]}"></div>`).join('')}</div></div>
   <button class="btn" onclick="saveCfg()">Guardar ajustes</button>
   <div class="card"><b>Flota</b><div style="margin-top:8px">${fl}</div></div>
+  <div class="card"><b>❓ Instructivo</b><div class="mut" style="margin:6px 0 10px">Guía paso a paso de cómo usar la app, con preguntas frecuentes.</div><a class="btn sm sec" style="display:block;text-align:center;padding:14px;text-decoration:none" href="ayuda/" target="_blank" rel="noopener">📖 Abrir instructivo</a></div>
   <div class="card"><b>Mis datos</b><div class="grid2" style="margin-top:10px"><button class="btn sm sec" style="padding:14px" onclick="exportCSV()">Exportar CSV</button><button class="btn sm sec" style="padding:14px" onclick="backup()">Backup JSON</button><button class="btn sm sec" style="padding:14px" onclick="pedirRestaurar()">Restaurar backup</button></div><div class="mut" style="margin-top:8px">Se baja solo una vez por día al abrir la app. Último backup: <span id="ultimoBackupFecha">${_bkUltimo()}</span></div></div>
   <p class="mut" style="text-align:center">manejAr v${VER}</p>`;}
 
