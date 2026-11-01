@@ -698,11 +698,13 @@ function vCfg(){const f=S.flota,lim=FM.limiteChoferes||2,n=Object.keys(FM.chofer
 
 /* ====== PANEL INTERNO (volante + PIN) ====== */
 function openAdminPin(){
+  /* sin PIN: abre directo solo con la cuenta admin */
+  if(window.rtIsAdmin&&window.rtIsAdmin()){adminOk();} return;
   if(Date.now()<pinLock)return toast('Demasiados intentos. Esperá un momento.');
   sheet(`<h3>Administración</h3><p class="mut">Ingresá el PIN</p><input id="f_pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" style="text-align:center;font-size:26px"><button class="btn" onclick="adminOk()">Entrar</button>`);
   setTimeout(()=>{const e=$('#f_pin');if(e)e.focus();},120);}
 function adminOk(){
-  const p=($('#f_pin').value||'');
+  const p=($('#f_pin')&&$('#f_pin').value)||'';
   if(!(window.rtIsAdmin&&window.rtIsAdmin())){pinFails++;if(pinFails>=5){pinLock=Date.now()+60000;pinFails=0;closeSheet();return toast('Demasiados intentos. Esperá 1 minuto.');}return toast('PIN incorrecto');}
   pinFails=0;closeSheet();ADMIN_OK=true;
   if(!FB_ON){sheet(`<h3>Admin</h3><div class="card"><div class="row"><span>Versión</span><b>${VER}</b></div><div class="row"><span>Registros locales</span><b>${S.r.length}</b></div>
