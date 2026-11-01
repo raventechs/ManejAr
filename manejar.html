@@ -740,20 +740,26 @@ async function openUser(id){
   const u=UL.find(x=>x.id===id);if(!u)return;SEL.dias='30';SEL.est=u.estado||'demo';
   const s=stUser(u);
   sheet(`<h3 style="word-break:break-all">${esc(u.email)}</h3><div class="mut">${esc(u.nombre||'sin nombre')} · alta ${fday(u.creado)} <span class="st ${s.k}" style="margin-left:6px">${s.t}</span></div>
-  <div class="card" style="margin-top:12px"><b>Registrar pago</b><div class="mut">Suma días a partir de hoy o del vencimiento, lo que sea mayor, y deja la cuenta activa.</div>
-   <label for="p_monto">Monto cobrado ($)</label><input id="p_monto" type="number" inputmode="decimal" placeholder="$ 0">
-   <label>Días que incluye</label>${chips('dias',['30','60','90','365'],'30')}
-   <label for="p_nota">Nota (medio de pago, opcional)</label><input id="p_nota" maxlength="60" placeholder="Mercado Pago, transferencia…">
-   <button class="btn" onclick="registrarPago('${esc(u.id)}')">Registrar pago y activar</button></div>
-  <div class="card"><b>Editar cuenta</b><label>Estado</label>${chips('est',['demo','activo','bloqueado'],SEL.est)}
-   <label for="u_vence">Vence el</label><input id="u_vence" type="date" value="${u.vence?toLocal(u.vence).slice(0,10):''}">
-   <label for="u_nota">Nota interna</label><input id="u_nota" maxlength="120" value="${esc(u.nota||'')}">
-   <button class="btn sec" onclick="guardarUser('${esc(u.id)}')">Guardar cambios</button></div>
+  <div class="card" style="margin-top:12px"><b>Dar más tiempo</b><div class="mut">Suma días a partir de hoy o del vencimiento, lo que sea mayor.</div>
+   <div class="grid2" style="margin-top:10px"><button class="btn sec" style="padding:14px" onclick="admDias('${esc(u.id)}',7,false)">+7 días</button><button class="btn sec" style="padding:14px" onclick="admDias('${esc(u.id)}',30,false)">+30 días</button></div></div>
+  <div class="card"><b>Cliente que pagó</b><div class="mut">Deja la cuenta activa y suma 30 días.</div>
+   <button class="btn" style="margin-top:10px" onclick="admDias('${esc(u.id)}',30,true)">✅ Activar cliente (30 días)</button></div>
+  <div class="card"><b>Acceso</b>${u.estado==='bloqueado'?`<button class="btn sec" style="margin-top:10px" onclick="admBloq('${esc(u.id)}',false)">Quitar bloqueo</button>`:`<button class="btn red" style="margin-top:10px" onclick="admBloq('${esc(u.id)}',true)">⛔ Bloquear cuenta</button>`}</div>
   <div class="card"><b>Pagos registrados</b><div id="pagos" class="mut" style="margin-top:6px">Cargando…</div></div>
   <button class="btn sec" onclick="closeSheet()">Cerrar</button>`);
   try{const sn=await db.collection('usuarios').doc(id).collection('pagos').orderBy('ts','desc').limit(10).get();const el=$('#pagos');
     if(el)el.innerHTML=sn.docs.length?sn.docs.map(d=>{const p=d.data();return `<div class="row"><span>${fday(p.ts)} · +${p.dias} d${p.nota?' · '+esc(p.nota):''}</span><b>${fmt(p.monto)}</b></div>`;}).join(''):'Sin pagos registrados.';}
   catch(e){const el=$('#pagos');if(el)el.textContent='No se pudieron leer los pagos.';}}
+async function admDias(id,dias,activar){
+  const u=UL.find(x=>x.id===id);if(!u)return;
+  const base=Math.max(Date.now(),u.vence||0),vence=base+dias*DAY,patch={vence};
+  if(activar){patch.estado='activo';patch.ultimoPago=Date.now();}else if(!u.estado||u.estado==='bloqueado'){patch.estado=u.estado||'demo';}
+  try{await db.collection('usuarios').doc(id).update(patch);closeSheet();toast((activar?'Cliente activado · ':'+'+dias+' días · ')+'vence '+fday(vence));}
+  catch(e){toast('No se pudo cambiar. ¿Verificaste tu email de administrador?');}}
+async function admBloq(id,bloquear){
+  const u=UL.find(x=>x.id===id);if(!u)return;
+  try{await db.collection('usuarios').doc(id).update({estado:bloquear?'bloqueado':(u.ultimoPago?'activo':'demo')});closeSheet();toast(bloquear?'Cuenta bloqueada':'Bloqueo quitado');}
+  catch(e){toast('No se pudo cambiar. ¿Verificaste tu email de administrador?');}}
 async function registrarPago(id){
   const u=UL.find(x=>x.id===id);if(!u)return;const monto=num($('#p_monto').value);if(!(monto>=0)||isNaN(monto))return toast('Ingresá el monto cobrado');
   const dias=parseInt(SEL.dias||'30',10),base=Math.max(Date.now(),u.vence||0),vence=base+dias*DAY,nota=($('#p_nota').value||'').slice(0,60);
