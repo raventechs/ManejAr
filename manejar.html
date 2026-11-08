@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
-  manejAr v2.4.0 — 2026-11-08
+  manejAr v2.5.0 — 2026-11-08
   Control de ganancias real para choferes de Uber / Didi / Cabify.
   Stack: single-file HTML + Firebase compat + GitHub Pages. Service worker: sw-manejar.js (raíz del repo). Sin Netlify.
 
+  v2.5.0: Plus «Análisis avanzado» (por hora, por km, comparativas): cuentas nuevas lo ven en la prueba o si el admin lo activa; cuentas anteriores no cambian.
   v2.4.0: al vencer la prueba o el plan YA NO se bloquea la app: sigue funcionando y aparece un cartel rojo titilante fijo, que no se puede cerrar, con botón para activar por WhatsApp. Solo el bloqueo manual del administrador sigue cortando el acceso. No toca datos ni reglas.
   v2.3.0: BACKUP completo: automático una vez por día al abrir (descarga el archivo y deja copia local de los últimos 7 días) + manual + RESTAURAR (junta con lo que ya hay). El archivo ya no lleva el estado de la cuenta (plan/vencimiento).
   v2.2.0: modo demostración (?demo=1): 4 semanas de datos de ejemplo para capturas/ventas, sin cuenta ni nube, clave local aparte.
@@ -263,7 +264,7 @@ h4{margin:0;font-size:16px}
 'use strict';
 /* ====== CONFIG ====== */
 const DEMO=/[?&]demo=1/.test(location.search);
-const VER='2.4.0', KEY=DEMO?'manejar_demo':'manejar_v1', ADMIN_PIN='', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
+const VER='2.5.0', KEY=DEMO?'manejar_demo':'manejar_v1', ADMIN_PIN='', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
 const FB={apiKey:'AIzaSyBaoM5gbWV5DrRQ7tIUyEPE5oyR6H8hnBw',authDomain:'manejar-dfdd4.firebaseapp.com',projectId:'manejar-dfdd4',storageBucket:'manejar-dfdd4.firebasestorage.app',messagingSenderId:'409587508261',appId:'1:409587508261:web:15e0e6f6f28f18dfd90bcc'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined' && !DEMO;
 const WHATSAPP='5491136547592'; /* número con código de país, ej 5491122334455 */
@@ -612,6 +613,12 @@ function vInicio(){const [a,b]=rango('hoy'),c=calc(S.r,a,b),jo=jornadaAbierta();
 function periodChips(cur,fn){return `<div class="chips">`+[['hoy','Hoy'],['sem','7 días'],['mes','Este mes']].map(([k,l])=>`<button class="chip ${cur===k?'on':''}" onclick="${fn}('${k}')">${l}</button>`).join('')+'</div>';}
 function setPer(p){per=p;render();}
 
+const PLUS_DESDE=Date.UTC(2026,10,9);
+function plusAnalisis(){if(esAdminCuenta())return true;const a=S.acct;if(!a)return true;
+  return a.plusAnalisis===true||a.estado==='demo'||!a.creado||a.creado<PLUS_DESDE;}
+function plusEsPrueba(){const a=S.acct;return !!(a&&a.estado==='demo'&&a.plusAnalisis!==true&&!esAdminCuenta());}
+function plusLock(){const msg='Hola, quiero sumar el Análisis avanzado a mi manejAr. Mi email: '+(me?me.email:'');
+  return `<div class="card"><b>⭐ Plus · Análisis avanzado</b><p class="mut" style="margin:6px 0">Mirá cuánto ganás por hora y por km, tu mejor hora del día y cómo venís contra ayer y la semana pasada.</p><a class="btn" target="_blank" rel="noopener" href="https://wa.me/${WHATSAPP}?text=${encodeURIComponent(msg)}">Quiero este plus</a></div>`;}
 function bloqueGraficas(){
   const s=sod(Date.now()),hoy=calc(S.r,s,s+DAY),rh=ritmo('hora'),rk=ritmo('km'),hh=horasHoy(),jo=jornadaAbierta();
   const kmNota=(!rk.ok&&jo&&hoy.km===0)?'<div class="mut" style="margin-top:2px">se calcula al cerrar la jornada</div>':'';
@@ -653,7 +660,7 @@ function vRes(){const [a,b]=rango(per),c=calc(S.r,a,b),s=sod(Date.now()),ay=calc
   <div class="card tap" onclick="openMetric('gan')"><div class="mut">Lo que te queda · después de gastos</div><div class="big ${c.gan<0?'neg':'pos'}">${fmt(c.gan)}</div>
    <div class="mut" style="margin-top:6px">Ingreso del trabajo ${fmt(c.neto)} <span style="opacity:.8">(cobrado ${fmt(c.bruto)} − comisiones ${fmt(c.com)})</span> − gastos ${fmt(c.gastos)}</div>${cmp}
    <div class="cap">Las gráficas de rendimiento usan solo el ingreso del trabajo: así un día de nafta no te tapa lo bien que trabajaste. Tocá para verlo día por día ›</div></div>
-  ${bloqueGraficas()}
+  ${plusAnalisis()?(plusEsPrueba()?'<div class="cap" style="margin:0 0 6px">⭐ Plus · Análisis avanzado (incluido en tu prueba)</div>':'')+bloqueGraficas():plusLock()}
   <div class="card"><b>¿Cuánto te queda en mano?</b>
    <div class="row"><span>💵 Efectivo en mano <span class="mut">(cobrado − gastos)</span></span><b class="${c.efecMano<0?'neg':''}">${fmt(c.efecMano)}</b></div>
    <div class="row"><span>📲 Digital a cobrar <span class="mut">(− comisiones)</span></span><b class="${c.digCobrar<0?'neg':''}">${fmt(c.digCobrar)}</b></div>
@@ -757,6 +764,8 @@ async function openUser(id){
    <div class="grid2" style="margin-top:10px"><button class="btn sec" style="padding:14px" onclick="admDias('${esc(u.id)}',7,false)">+7 días</button><button class="btn sec" style="padding:14px" onclick="admDias('${esc(u.id)}',30,false)">+30 días</button></div></div>
   <div class="card"><b>Cliente que pagó</b><div class="mut">Deja la cuenta activa y suma 30 días.</div>
    <button class="btn" style="margin-top:10px" onclick="admDias('${esc(u.id)}',30,true)">✅ Activar cliente (30 días)</button></div>
+  <div class="card"><b>⭐ Plus · Análisis avanzado</b><div class="mut">Por hora, por km y comparativas.</div>
+   ${u.plusAnalisis===true?`<button class="btn sec" style="margin-top:10px" onclick="admPlus('${esc(u.id)}',false)">Quitar plus</button>`:`<button class="btn" style="margin-top:10px" onclick="admPlus('${esc(u.id)}',true)">⭐ Activar plus</button>`}</div>
   <div class="card"><b>Acceso</b>${u.estado==='bloqueado'?`<button class="btn sec" style="margin-top:10px" onclick="admBloq('${esc(u.id)}',false)">Quitar bloqueo</button>`:`<button class="btn red" style="margin-top:10px" onclick="admBloq('${esc(u.id)}',true)">⛔ Bloquear cuenta</button>`}</div>
   <div class="card"><b>Pagos registrados</b><div id="pagos" class="mut" style="margin-top:6px">Cargando…</div></div>
   <button class="btn sec" onclick="closeSheet()">Cerrar</button>`);
@@ -768,6 +777,9 @@ async function admDias(id,dias,activar){
   const base=Math.max(Date.now(),u.vence||0),vence=base+dias*DAY,patch={vence};
   if(activar){patch.estado='activo';patch.ultimoPago=Date.now();}else if(!u.estado||u.estado==='bloqueado'){patch.estado=u.estado||'demo';}
   try{await db.collection('usuarios').doc(id).update(patch);closeSheet();toast((activar?'Cliente activado · ':'+'+dias+' días · ')+'vence '+fday(vence));}
+  catch(e){toast('No se pudo cambiar. ¿Verificaste tu email de administrador?');}}
+async function admPlus(id,on){
+  try{await db.collection('usuarios').doc(id).update({plusAnalisis:on});closeSheet();toast(on?'Plus activado':'Plus quitado');}
   catch(e){toast('No se pudo cambiar. ¿Verificaste tu email de administrador?');}}
 async function admBloq(id,bloquear){
   const u=UL.find(x=>x.id===id);if(!u)return;
