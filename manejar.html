@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
-  manejAr v2.3.0 — 2026-10-26
+  manejAr v2.4.0 — 2026-11-08
   Control de ganancias real para choferes de Uber / Didi / Cabify.
   Stack: single-file HTML + Firebase compat + GitHub Pages. Service worker: sw-manejar.js (raíz del repo). Sin Netlify.
 
+  v2.4.0: al vencer la prueba o el plan YA NO se bloquea la app: sigue funcionando y aparece un cartel rojo titilante fijo, que no se puede cerrar, con botón para activar por WhatsApp. Solo el bloqueo manual del administrador sigue cortando el acceso. No toca datos ni reglas.
   v2.3.0: BACKUP completo: automático una vez por día al abrir (descarga el archivo y deja copia local de los últimos 7 días) + manual + RESTAURAR (junta con lo que ya hay). El archivo ya no lleva el estado de la cuenta (plan/vencimiento).
   v2.2.0: modo demostración (?demo=1): 4 semanas de datos de ejemplo para capturas/ventas, sin cuenta ni nube, clave local aparte.
   v2.1.0: ingreso con Google (popup; redirect si el navegador bloquea popups) además de email+contraseña. Nombre tomado de la cuenta Google. Requiere activar proveedor Google en Firebase Auth.
@@ -11,7 +12,7 @@
   v2.0.1: configuración Firebase real (proyecto manejar-dfdd4).
 
   CUENTAS Y VENTA (v2.0.0)
-  - Login email + contraseña (Firebase Auth). Al registrarse: demo gratis de 14 días. Al vencer: pantalla de bloqueo.
+  - Login email + contraseña (Firebase Auth). Al registrarse: demo gratis de 14 días. Al vencer (v2.4): la app sigue funcionando con cartel rojo titilante fijo; solo el bloqueo manual corta el acceso.
   - Estados de cuenta en Firestore usuarios/{uid}: demo | activo | bloqueado + vence (ms). Lo cambia SOLO el administrador.
   - Cobro MANUAL: el administrador registra el pago (monto + días) desde el panel interno y la cuenta se extiende.
   - Panel interno: tocar el volante (izquierda del logo) + cuenta admin verificada. El permiso real lo da la cuenta administradora
@@ -116,6 +117,10 @@ h4{margin:0;font-size:16px}
 .banner.red{background:var(--red);color:#fff;animation:blink 1.4s infinite}
 .banner.amb{background:var(--amb);color:#2b1a00}
 @keyframes blink{50%{opacity:.65}}
+.barvenc{position:fixed;left:8px;right:8px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:8;border-radius:14px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:15px;font-weight:800;color:#fff;background:#c62828;border:2px solid #fff;box-shadow:0 4px 20px rgba(0,0,0,.55);animation:blinkv 1s infinite}
+.barvenc button{background:#fff;color:#7f1d1d;border:0;border-radius:10px;padding:10px 14px;font-weight:800;font-size:14px;white-space:nowrap}
+@keyframes blinkv{0%,100%{background:#c62828;opacity:1}50%{background:#7f1d1d;opacity:.8}}
+@media (prefers-reduced-motion:reduce){.barvenc{animation:none}}
 .st{font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;white-space:nowrap}
 .st.ok{background:rgba(34,197,94,.18);color:var(--ac)}.st.demo{background:rgba(245,158,11,.18);color:var(--amb)}.st.no{background:rgba(239,68,68,.18);color:var(--red)}
 .ucard{cursor:pointer}.ucard:active{transform:scale(.99)}
@@ -258,7 +263,7 @@ h4{margin:0;font-size:16px}
 'use strict';
 /* ====== CONFIG ====== */
 const DEMO=/[?&]demo=1/.test(location.search);
-const VER='2.3.0', KEY=DEMO?'manejar_demo':'manejar_v1', ADMIN_PIN='', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
+const VER='2.4.0', KEY=DEMO?'manejar_demo':'manejar_v1', ADMIN_PIN='', ADMIN_EMAIL='rgaraventa@gmail.com', DAY=864e5, DEMO_DIAS=14;
 const FB={apiKey:'AIzaSyBaoM5gbWV5DrRQ7tIUyEPE5oyR6H8hnBw',authDomain:'manejar-dfdd4.firebaseapp.com',projectId:'manejar-dfdd4',storageBucket:'manejar-dfdd4.firebasestorage.app',messagingSenderId:'409587508261',appId:'1:409587508261:web:15e0e6f6f28f18dfd90bcc'};
 const FB_ON=FB.apiKey!=='REEMPLAZAR' && typeof firebase!=='undefined' && !DEMO;
 const WHATSAPP='5491136547592'; /* número con código de país, ej 5491122334455 */
@@ -482,7 +487,7 @@ function acceso(){
   if(esAdminCuenta())return {ok:true,tipo:'admin'};
   const a=S.acct;if(!a)return {ok:false,motivo:'sin'};
   if(a.estado==='bloqueado')return {ok:false,motivo:'bloqueado'};
-  if(!a.vence||Date.now()>=a.vence)return {ok:false,motivo:a.estado==='demo'?'demo':'vencida'};
+  if(!a.vence||Date.now()>=a.vence)return {ok:true,tipo:'vencida',dias:0,antes:a.estado==='demo'?'demo':'vencida'};
   return {ok:true,tipo:a.estado,dias:Math.ceil((a.vence-Date.now())/DAY)};}
 function evaluarAcceso(){
   if(!me){gate='auth';render();return;}
@@ -583,9 +588,17 @@ function vBlock(){
 function bannerCuenta(){
   if(DEMO)return '<div class="banner amb"><span>MODO DEMO · datos de ejemplo</span></div>';
   if(!FB_ON||esAdminCuenta())return '';const a=acceso();if(!a.ok)return '';
+  if(a.tipo==='vencida')return '';
   if(a.tipo==='demo')return `<div class="banner red"><span>Prueba gratis: te ${a.dias===1?'queda 1 día':'quedan '+a.dias+' días'}</span><button class="btn sm" style="background:#fff;color:#7f1d1d" onclick="openPlan()">Activar</button></div>`;
   if(a.tipo==='activo'&&a.dias<=5)return `<div class="banner amb"><span>Tu cuenta vence en ${a.dias===1?'1 día':a.dias+' días'}</span><button class="btn sm" style="background:#2b1a00;color:#fff" onclick="openPlan()">Renovar</button></div>`;
   return '';}
+function barraVencida(){
+  let b=document.getElementById('barvenc');
+  const a=(FB_ON&&me&&!DEMO&&gate==='app'&&!esAdminCuenta())?acceso():null;
+  if(!a||!a.ok||a.tipo!=='vencida'){if(b)b.remove();return;}
+  const txt=a.antes==='demo'?'Terminó tu prueba gratis':'Tu plan venció';
+  if(!b){b=document.createElement('div');b.id='barvenc';b.className='barvenc';document.body.appendChild(b);}
+  b.innerHTML='<span>⚠️ '+txt+'. Activá tu cuenta para seguir sin esta alerta.</span><button onclick="openPlan()">Activar</button>';}
 function openPlan(){sheet(`<h3>Activar mi cuenta</h3><p class="mut">Una vez que abonás, activamos tu cuenta y se suman los días de tu plan.</p>${contactoHtml()}<button class="btn sec" onclick="closeSheet()">Cerrar</button>`);}
 
 /* ====== VISTAS ====== */
@@ -675,7 +688,7 @@ function vFlota(){
 
 function vCuenta(){
   if(!FB_ON)return '';const a=acceso(),ac=S.acct||{};
-  const est=esAdminCuenta()?'Administrador':a.ok?(a.tipo==='demo'?'Prueba gratis · '+a.dias+' d restantes':'Activa · vence '+fday(ac.vence)):'Sin acceso';
+  const est=esAdminCuenta()?'Administrador':a.ok?(a.tipo==='demo'?'Prueba gratis · '+a.dias+' d restantes':a.tipo==='vencida'?'Vencida · activá tu cuenta':'Activa · vence '+fday(ac.vence)):'Sin acceso';
   return `<div class="card"><b>Mi cuenta</b><div class="row"><span class="mut">Email</span><span style="word-break:break-all;text-align:right">${esc(me?me.email:'')}</span></div>
   <div class="row"><span class="mut">Estado</span><b style="font-size:14px">${esc(est)}</b></div>
   <div class="grid2" style="margin:10px 0 0"><button class="btn sm sec" style="padding:12px" onclick="cambiarPass()">Cambiar contraseña</button><button class="btn sm sec" style="padding:12px" onclick="salir()">Cerrar sesión</button></div></div>`;}
@@ -777,7 +790,7 @@ async function guardarUser(id){
 function render(){
   const ow=S.flota.rol==='owner';
   if(FB_ON&&gate!=='app'){
-    $('#nav').innerHTML='';$('#rolBadge').style.display='none';
+    $('#nav').innerHTML='';$('#rolBadge').style.display='none';barraVencida();
     $('#view').innerHTML=gate==='auth'?vAuth():gate==='block'?vBlock():'<p class="mut" style="text-align:center;margin-top:60px">Cargando…</p>';return;}
   const tabs=[['inicio','🏠','Inicio'],['res','📊','Resultados'],['hist','🕘','Historial']].concat(ow?[['flota','👥','Flota']]:[]).concat(ADMIN_OK&&FB_ON&&esAdminCuenta()?[['admin','🛠️','Cuentas']]:[]).concat([['cfg','⚙️','Ajustes']]);
   if(tab==='flota'&&!ow)tab='inicio';if(tab==='admin'&&!(ADMIN_OK&&esAdminCuenta()))tab='inicio';
@@ -785,6 +798,7 @@ function render(){
   $('#rolBadge').textContent=ow?'Dueño':(S.flota.rol==='driver'?'Flota':'');$('#rolBadge').style.display=S.flota.rol?'':'none';
   $('#view').innerHTML=(tab==='admin'?'':bannerCuenta())+({inicio:vInicio,res:vRes,hist:vHist,flota:vFlota,cfg:vCfg,admin:vAdmin}[tab])();
   if(tab==='admin'){renderSum();renderUL();}
+  barraVencida();
 }
 function saveCfg(){S.cfg.nombre=$('#c_nom').value.trim();S.cfg.vehiculo=$('#c_veh').value.trim();
   for(const p of PLATS){const v=num($('#c_'+p).value);S.cfg.com[p]=(v>=0&&v<=100)?v:S.cfg.com[p];}
